@@ -1,0 +1,4 @@
+CONVEX HULL
+===========
+
+This class implements the QuickHull algorithm for computing convex hulls in arbitrary dimensions. It is designed to be easy to add to other projects.
