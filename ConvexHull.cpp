@@ -1,6 +1,7 @@
 /* SYSTEM INCLUDES */
 #include <algorithm>
 #include <assert.h>
+#include <cmath>
 #include <cstdlib>
 #include <numeric>
 #include <stdexcept>
@@ -64,8 +65,6 @@ vector< vector< size_t > > computeConvexHull( const vector< vector< double > >& 
   catch ( invalid_argument e ) {
     // Failed to grow the convex hull. Change perturbation and retry
     double newPerturbation = perturbation == 0.0 ? 1e-9 : 100 * perturbation;
-    if ( newPerturbation > 1e-8 )
-      throw invalid_argument( "Too large perturbation." );
     throwExceptionIfInvalidPerturbation_( newPerturbation, unperturbedPoints );
     return computeConvexHull( unperturbedPoints, newPerturbation );
   }
@@ -76,17 +75,17 @@ vector< vector< size_t > > computeConvexHull( const vector< vector< double > >& 
   // Construct vector of vertex indices for the facets of the convex hull
   vector< vector< size_t > > vertexIndices( facets.size(), vector< size_t >( dimension ) );
   size_t fi = 0;
-  for ( FacetConstIt fIt = facets.begin(); fIt != facets.end(); ++fIt, ++fi ) {
-    for ( size_t vi = 0; vi < dimension; ++vi ) {
-      vertexIndices[ fi ][ vi ] = fIt->vertexIndices[ vi ];
-    }
+  for ( FacetIt fIt = facets.begin(); fIt != facets.end(); ++fIt, ++fi ) {
+    vertexIndices[ fi ].swap( fIt->vertexIndices );
   }
   return vertexIndices;
 }
 
-void growConvexHull( const vector< vector< double > >& points,
+void growConvexHull( const vector< vector< double > >& pointsIn,
                      list< Facet >& facets )
 {
+  vector< vector< double > > points = pointsIn;
+
   // Check that the input data is correct
   throwExceptionIfTooFewPoints_( points );
   const size_t dimension = points.front().size();
@@ -94,10 +93,24 @@ void growConvexHull( const vector< vector< double > >& points,
   throwExceptionIfNotAllFacetsFullDimensional_( facets, dimension );
   throwExceptionIfFacetsUseNonExistingVertices_( facets, points );
 
-  // Update the facet center points to the mean of the vertex points
-  updateFacetCenterPoints_( points, facets );
+  // Set mass-centric coordinates
+  {
+    // Update the facet center points to the mean of the vertex points
+    updateFacetCenterPoints_( pointsIn, facets );
 
-  // Compute origin as the mean of the center points of the seed facets
+    // Compute origin as the mean of the center points of the seed facets
+    {
+      const vector< double > origin = computeOrigin_( facets );
+
+      for ( size_t pi = 0; pi < points.size(); ++pi ) {
+        for ( size_t i = 0; i < origin.size(); ++i ) {
+          points[ pi ][ i ] -= origin[ i ];
+        }
+      }
+    }
+  }
+
+  updateFacetCenterPoints_( points, facets );
   const vector< double > origin = computeOrigin_( facets );
 
   // Compute inwards-oriented facet normals
@@ -125,11 +138,10 @@ void growConvexHull( const vector< vector< double > >& points,
   // Create new facets using the outer points
   while ( facetsWithOuterPoints.size() > 0 ) {
     FacetIt facetIt = facetsWithOuterPoints.back();
-    Facet& facet = *facetIt;
     facetsWithOuterPoints.pop_back();
 
     // From the outer set of the current facet, find the farthest point
-    const size_t apexIndex = getAndEraseFarthestPointFromOuterSet_( points, facet );
+    const size_t apexIndex = getAndEraseFarthestPointFromOuterSet_( points, *facetIt );
     const vector< double >& apex = points[ apexIndex ];
 
     // Find the set of facets that are visible from the point to be added
@@ -301,6 +313,12 @@ void updateFacetNormalAndOffset_( const vector< vector< double > >& points,
       x[ i - 1 ] = ( A[ i - 1 ][ dimension ] - y ) / A[ i - 1 ][ i - 1 ];
     }
   }
+  for ( size_t i = 0; i < x.size(); ++i ) {
+    if ( isnan( x[ i ] ) ) {
+      throw invalid_argument( "Solving linear system of equations resulted in NaN" );
+    }
+  }
+
   double sumX = accumulate( x.begin(), x.end(), 0.0 );
   for ( size_t i = 0; i < x.size(); ++i ) {
     x[ i ] /= sumX;
