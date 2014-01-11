@@ -3,6 +3,10 @@
 #include <iostream>
 #include <sstream>
 
+#include <iterator>
+#include <fstream>
+#include <vector>
+
 #include "ConvexHull.h"
 
 using namespace std;
@@ -191,10 +195,41 @@ bool testConvexHull3D_()
   return t.endTest();
 }
 
+void testSpeed_()
+{
+  vector< double > data;
+  ifstream fileStream( "points3d-1e4.txt" );
+  copy( istream_iterator< double >( fileStream ),
+        istream_iterator< double >(),
+        back_inserter< vector< double > >( data ) );
+
+  vector< vector< double > > points;
+  points.reserve( 1e4 );
+  vector< double > point;
+  for ( size_t i = 0; i < data.size(); ++i ) {
+    point.push_back( data[ i ] );
+    if ( point.size() == 3 ) {
+      points.push_back( point );
+      point.clear();
+    }
+  }
+  for ( size_t i = 0; i < 10; ++i ) {
+    vector< vector< size_t > > facets = computeConvexHull( points );
+  }
+}
+
 int main( int argc, const char* argv[] )
 {
-  Test t( "Convex hull suite" );
-  t.verify( testConvexHull2D_(), "Test 2D" );
-  t.verify( testConvexHull3D_(), "Test 3D" );
-  t.endTest( true );
+  bool standardTest = argc == 1;
+
+  if ( standardTest ) {
+    Test t( "Convex hull suite" );
+    t.verify( testConvexHull2D_(), "Test 2D" );
+    t.verify( testConvexHull3D_(), "Test 3D" );
+    t.endTest( true );
+  }
+  else {
+    testSpeed_();
+  }
+
 }

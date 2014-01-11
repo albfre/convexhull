@@ -19,8 +19,8 @@ namespace ConvexHull {
       // iterators pointing to the neighboring facets
       std::vector< std::list< Facet >::iterator > neighbors;
 
-      // indices to a set of points that are outer to the facet
-      std::vector< size_t > outerIndices;
+      // indices to a set of points that are outside to the facet
+      std::vector< size_t > outsideIndices;
 
       double offset;
 
