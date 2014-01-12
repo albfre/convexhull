@@ -50,6 +50,12 @@ namespace {
   struct OutsideSetSizeComparator { bool operator() ( const FacetIt& fIt1,
                                                       const FacetIt& fIt2 ) const
   { return fIt1->outsideIndices.size() < fIt2->outsideIndices.size(); } };
+  struct DimensionComparator {
+    DimensionComparator( size_t dimension ) : dimension_( dimension ) {}
+    bool operator() ( const vector< double >& p1, const vector< double >& p2 ) { return p1[ dimension_ ] < p2[ dimension_ ]; }
+    private:
+      size_t dimension_;
+  };
 }
 
 vector< vector< size_t > > computeConvexHull( const vector< vector< double > >& unperturbedPoints,
@@ -203,12 +209,27 @@ list< Facet > getInitialSimplex_( const vector< vector< double > >& points )
   }
   list< Facet > facets;
 
+  set< size_t > startPointIndexSet;
+  for ( size_t d = 0; d < dimension; ++d ) {
+    vector< vector< double > >::const_iterator pItMin = min_element( points.begin(), points.end(), DimensionComparator( d ) );
+    vector< vector< double > >::const_iterator pItMax = max_element( points.begin(), points.end(), DimensionComparator( d ) );
+    startPointIndexSet.insert( pItMin - points.begin() );
+    startPointIndexSet.insert( pItMax - points.begin() );
+  }
+  size_t i = 0;
+  while ( startPointIndexSet.size() < dimension + 1 && i < points.size() ) {
+    startPointIndexSet.insert( i );
+    ++i;
+  }
+  assert( startPointIndexSet.size() > dimension );
+  vector< size_t > startPointIndices( startPointIndexSet.begin(), startPointIndexSet.end() );
+
   // Create initial simplex using the (dimension + 1) first points.
   // The facets have vertices [0, ..., dimension - 1], [1, ..., dimension], ..., [dimension, 0, ..., dimension - 2]
   for ( size_t i = 0; i <= dimension; ++i ) {
     vector< size_t > vertexIndices( dimension );
     for ( size_t j = 0; j < dimension; ++j ) {
-      vertexIndices[ j ] = ( i + j ) % ( dimension + 1 );
+      vertexIndices[ j ] = startPointIndices[ ( i + j ) % ( dimension + 1 ) ];
     }
     facets.push_back( Facet( vertexIndices ) );
   }
