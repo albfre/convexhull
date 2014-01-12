@@ -209,6 +209,7 @@ vector< vector< size_t > > computeConvexHull_( const vector< vector< double > >&
     }
   }
 
+
   try {
     // Compute the convex hull for the set of all points using the seed polytope
     growConvexHull( points, facets );

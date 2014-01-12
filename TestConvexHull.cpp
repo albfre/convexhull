@@ -195,7 +195,7 @@ bool testConvexHull3D_()
   return t.endTest();
 }
 
-void testSpeed_()
+void testSpeedRandom_()
 {
   vector< double > data;
   ifstream fileStream( "points3d-1e4.txt" );
@@ -218,6 +218,23 @@ void testSpeed_()
   }
 }
 
+void testSpeedUniform_()
+{
+  vector< vector< double > > points;
+  size_t side = 100;
+  points.reserve( side * side );
+  for ( size_t i = 0; i < side; ++i ) {
+    for ( size_t j = 0; j < side; ++j ) {
+      vector< double > point( 3 );
+      point[ 0 ] = double( i ) - side / 2;
+      point[ 1 ] = double( j ) - side / 2;
+      point[ 2 ] = point[ 0 ] * point[ 0 ] + point[ 1 ] * point[ 1 ];
+      points.push_back( point );
+    }
+  }
+  vector< vector< size_t > > facets = computeConvexHull( points, 1e-8 );
+}
+
 int main( int argc, const char* argv[] )
 {
   bool standardTest = argc == 1;
@@ -229,7 +246,12 @@ int main( int argc, const char* argv[] )
     t.endTest( true );
   }
   else {
-    testSpeed_();
+    if ( atoi( argv[ 1 ] ) == 0 ) {
+      testSpeedRandom_();
+    }
+    else {
+      testSpeedUniform_();
+    }
   }
 
 }
