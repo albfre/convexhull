@@ -409,7 +409,9 @@ void initializeOutsideSets_( const vector< vector< double > >& points,
         farthestFacetIt = fIt;
       }
     }
-    farthestFacetIt->outsideIndices.push_back( *pIt );
+    if ( maxDistance > 0.0 ) {
+      farthestFacetIt->outsideIndices.push_back( *pIt );
+    }
   }
 }
 
@@ -547,6 +549,7 @@ void updateOutsideSets_( const vector< vector< double > >& points,
                          const vector< FacetIt >& visibleFacets,
                          vector< FacetIt >& newFacets )
 {
+  assert( newFacets.size() > 0 );
   size_t numOfUnassignedPoints = 0;
   for ( size_t vi = 0; vi < visibleFacets.size(); ++vi ) {
     numOfUnassignedPoints += visibleFacets[ vi ]->outsideIndices.size();
@@ -559,6 +562,20 @@ void updateOutsideSets_( const vector< vector< double > >& points,
   }
 
   for ( vector< size_t >::const_iterator pIt = unassignedPointIndices.begin(); pIt != unassignedPointIndices.end(); ++pIt ) {
+    /*
+    FacetIt farthestFacetIt = newFacets.front();
+    double maxDistance = distance_( *farthestFacetIt, points[ *pIt ] );
+    for ( size_t ni = 1; ni < newFacets.size(); ++ni ) {
+      double distance = distance_( *newFacets[ ni ], points[ *pIt ] );
+      if ( distance > maxDistance ) {
+        maxDistance = distance;
+        farthestFacetIt = newFacets[ ni ];
+      }
+    }
+    if ( maxDistance > 0.0 ) {
+      farthestFacetIt->outsideIndices.push_back( *pIt );
+    }
+    */
     for ( size_t ni = 0; ni < newFacets.size(); ++ni ) {
       if ( isFacetVisibleFromPoint_( *newFacets[ ni ], points[ *pIt ] ) ) {
         newFacets[ ni ]->outsideIndices.push_back( *pIt );
