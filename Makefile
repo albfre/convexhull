@@ -16,6 +16,9 @@ profile: $(SRCS) \
 test: $(TESTSRC) \
 ; $(CC) $(CFLAGS) -o $(TEST) $(TESTSRC) $(OBJS)
 
+testprofile: $(TESTSRC) \
+; $(CC) $(PROFILECFLAGS) -o $(TEST) $(TESTSRC) $(OBJS)
+
 clean: \
 ; $(RM) $(OBJS)
 

@@ -194,6 +194,7 @@ vector< vector< size_t > > computeConvexHull_( const vector< vector< double > >&
   }
   catch ( invalid_argument e ) {
     // Failed to grow the convex hull. Change perturbation and retry
+    cerr << "1 " << e.what() << endl;
     double newPerturbation = perturbation == 0.0 ? 1e-9 : 100 * perturbation;
     throwExceptionIfInvalidPerturbation_( newPerturbation, unperturbedPoints );
     if ( depth > 2 ) {
@@ -216,6 +217,7 @@ vector< vector< size_t > > computeConvexHull_( const vector< vector< double > >&
   }
   catch ( invalid_argument e ) {
     // Failed to grow the convex hull. Change perturbation and retry
+    cerr << "2 " << e.what() << endl;
     double newPerturbation = perturbation == 0.0 ? 1e-9 : 100 * perturbation;
     throwExceptionIfInvalidPerturbation_( newPerturbation, unperturbedPoints );
     if ( depth > 2 ) {
@@ -411,7 +413,7 @@ size_t getAndEraseFarthestPointFromOutsideSet_( const vector< vector< double > >
   assert( facet.outsideIndices.size() > 0 );
   vector< size_t >::iterator farthestPointIndexIt = facet.outsideIndices.begin();
   double maxOffset = scalarProduct_( facet.normal, points[ *farthestPointIndexIt ] );
-  for ( vector< size_t >::iterator pIt = facet.outsideIndices.begin(); pIt != facet.outsideIndices.end(); ++pIt ) {
+  for ( vector< size_t >::iterator pIt = facet.outsideIndices.begin() + 1; pIt != facet.outsideIndices.end(); ++pIt ) {
     double offset = scalarProduct_( facet.normal, points[ *pIt ] );
     if ( offset > maxOffset ) {
       maxOffset = offset;
@@ -570,8 +572,30 @@ bool isFacetVisibleFromPoint_( const Facet& facet,
 double scalarProduct_( const vector< double >& a,
                        const vector< double >& b )
 {
-  assert( a.size() == b.size() );
-  return inner_product( a.begin(), a.end(), b.begin(), 0.0 );
+  // The scalar product is called a large number of times.
+  // The following assert has therefore been removed for speed:
+  // assert( a.size() == b.size() );
+  //
+  // Computing the dot product with the following unrolling gave a speedup of about 15 %
+  // for a 3d case with 1e4 randomly distributed points compared to the default method
+  // (and about 60 % compared to inner_product( a.begin(), a.end, b.begin(), 0.0 );
+  switch ( a.size() ) {
+    case 2: return a[ 0 ] * b[ 0 ] + a[ 1 ] * b[ 1 ];
+    case 3: return a[ 0 ] * b[ 0 ] + a[ 1 ] * b[ 1 ] + a[ 2 ] * b[ 2 ];
+    case 4: return a[ 0 ] * b[ 0 ] + a[ 1 ] * b[ 1 ] + a[ 2 ] * b[ 2 ] + a[ 3 ] * b[ 3 ];
+    case 5: return a[ 0 ] * b[ 0 ] + a[ 1 ] * b[ 1 ] + a[ 2 ] * b[ 2 ] + a[ 3 ] * b[ 3 ] + a[ 4 ] * b[ 4 ];
+    case 6: return a[ 0 ] * b[ 0 ] + a[ 1 ] * b[ 1 ] + a[ 2 ] * b[ 2 ] + a[ 3 ] * b[ 3 ] + a[ 4 ] * b[ 4 ] + a[ 5 ] * b[ 5 ];
+    case 7: return a[ 0 ] * b[ 0 ] + a[ 1 ] * b[ 1 ] + a[ 2 ] * b[ 2 ] + a[ 3 ] * b[ 3 ] + a[ 4 ] * b[ 4 ] + a[ 5 ] * b[ 5 ] + a[ 6 ] * b[ 6 ];
+    case 8: return a[ 0 ] * b[ 0 ] + a[ 1 ] * b[ 1 ] + a[ 2 ] * b[ 2 ] + a[ 3 ] * b[ 3 ] + a[ 4 ] * b[ 4 ] + a[ 5 ] * b[ 5 ] + a[ 6 ] * b[ 6 ] + a[ 7 ] * b[ 7 ];
+    default:
+    {
+      double sum = 0.0;
+      for ( size_t i = 0; i < a.size(); ++i ) {
+        sum += a[ i ] * b[ i ];
+      }
+      return sum;
+    }
+  }
 }
 
 void overwritingSolveLinearSystemOfEquations_( vector< vector< double > >& A,
@@ -600,27 +624,26 @@ void overwritingSolveLinearSystemOfEquations_( vector< vector< double > >& A,
         mu = i;
       }
     }
+    if ( maxValue == 0.0 ) {
+      // Matrix is singular
+      throw invalid_argument( singularMatrix );
+    }
+
     pivot[ k ] = mu;
     A[ k ].swap( A[ mu ] );
 
-    if ( A[ k ][ k ] != 0.0 ) {
-      // rho = k + 1:n - 1
-      // A(rho,k) = A(rho,k) / A(k,k)
-      double factor = 1.0 / A[ k ][ k ];
-      for ( size_t rho = k + 1; rho < n; ++rho ) {
-        A[ rho ][ k ] *= factor;
-      }
-
-      // A(rho,rho) = A(rho,rho) - A(rho,k) * A(k,rho)
-      for ( size_t i = k + 1; i < n; ++i ) {
-        for ( size_t j = k + 1; j < n; ++j ) {
-          A[ i ][ j ] -= A[ i ][ k ] * A[ k ][ j ];
-        }
-      }
+    // rho = k + 1:n - 1
+    // A(rho,k) = A(rho,k) / A(k,k)
+    double factor = 1.0 / A[ k ][ k ];
+    for ( size_t i = k + 1; i < n; ++i ) {
+      A[ i ][ k ] *= factor;
     }
-    else {
-      // Matrix is singular
-      throw invalid_argument( singularMatrix );
+
+    // A(rho,rho) = A(rho,rho) - A(rho,k) * A(k,rho)
+    for ( size_t i = k + 1; i < n; ++i ) {
+      for ( size_t j = k + 1; j < n; ++j ) {
+       A[ i ][ j ] -= A[ i ][ k ] * A[ k ][ j ];
+      }
     }
   }
   if ( A[ n - 1 ][ n - 1 ] == 0.0 ) {
@@ -646,7 +669,10 @@ void overwritingSolveLinearSystemOfEquations_( vector< vector< double > >& A,
   // See Algorithm 3.1.2 in Golub and Van Loan
   for ( size_t j = n; j > 0; --j ) {
     size_t i = j - 1;
-    double sum = inner_product( A[ i ].begin() + j, A[ i ].end(), b.begin() + j, 0.0 );
+    double sum = 0.0;
+    for ( size_t k = j; k < n; ++k ) {
+      sum += A[ i ][ k ] * b[ k ];
+    }
     if ( A[ i ][ i ] == 0.0 ) {
       // Matrix is singular
       if ( b[ i ] == sum ) {

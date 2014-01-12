@@ -198,6 +198,7 @@ bool testConvexHull3D_()
 void testSpeedRandom_()
 {
   vector< double > data;
+  // these 1e6 points take 0.6 s in qhull
   ifstream fileStream( "points3d-1e4.txt" );
   copy( istream_iterator< double >( fileStream ),
         istream_iterator< double >(),
