@@ -35,6 +35,7 @@ namespace {
   vector< FacetIt > createNewFacets_( size_t apexIndex, const vector< pair< FacetIt, FacetIt > >& horizon, list< Facet >& facets );
   void updateOutsideSets_( const vector< vector< double > >& points, const vector< FacetIt >& visibleFacets, vector< FacetIt >& newFacets );
   bool isFacetVisibleFromPoint_( const Facet& facet, const vector< double >& point );
+  double distance_( const Facet& facet, const vector< double >& point );
   double scalarProduct_( const vector< double >& a, const vector< double >& b );
   void overwritingSolveLinearSystemOfEquations_( vector< vector< double > >& A, vector< double >& b );
 
@@ -173,8 +174,8 @@ vector< vector< size_t > > computeConvexHull_( const vector< vector< double > >&
                                                                 : unperturbedPoints;
 
   // Get the indices of the extreme points
-  const vector< size_t > initialPointIndices = getInitialPolytopeVertexIndices_( points );
   const size_t dimension = unperturbedPoints.front().size();
+  const vector< size_t > initialPointIndices = getInitialPolytopeVertexIndices_( points );
   assert( initialPointIndices.size() >= dimension + 1 );
 
   // Create a vector of the extreme points
@@ -209,7 +210,6 @@ vector< vector< size_t > > computeConvexHull_( const vector< vector< double > >&
       fIt->vertexIndices[ i ] = initialPointIndices[ fIt->vertexIndices[ i ] ];
     }
   }
-
 
   try {
     // Compute the convex hull for the set of all points using the seed polytope
@@ -398,12 +398,18 @@ void initializeOutsideSets_( const vector< vector< double > >& points,
   }
 
   for ( vector< size_t >::const_iterator pIt = unassignedPointIndices.begin(); pIt != unassignedPointIndices.end(); ++pIt ) {
-    for ( FacetIt fIt = facets.begin(); fIt != facets.end(); ++fIt ) {
-      if ( isFacetVisibleFromPoint_( *fIt, points[ *pIt ] ) ) {
-        fIt->outsideIndices.push_back( *pIt );
-        break;
+    FacetIt farthestFacetIt = facets.begin();
+    double maxDistance = distance_( *farthestFacetIt, points[ *pIt ] );
+    FacetIt fIt = facets.begin();
+    ++fIt;
+    for ( ; fIt != facets.end(); ++fIt ) {
+      double distance = distance_( *fIt, points[ *pIt ] );
+      if ( distance > maxDistance ) {
+        maxDistance = distance;
+        farthestFacetIt = fIt;
       }
     }
+    farthestFacetIt->outsideIndices.push_back( *pIt );
   }
 }
 
@@ -567,6 +573,12 @@ bool isFacetVisibleFromPoint_( const Facet& facet,
 {
   // Returns true if the point is contained in the open negative halfspace of the facet
   return scalarProduct_( facet.normal, point ) < facet.offset;
+}
+
+double distance_( const Facet& facet,
+                  const vector< double >& point )
+{
+  return facet.offset - scalarProduct_( facet.normal, point );
 }
 
 double scalarProduct_( const vector< double >& a,
