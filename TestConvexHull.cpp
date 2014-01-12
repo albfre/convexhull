@@ -213,7 +213,7 @@ void testSpeed_()
       point.clear();
     }
   }
-  for ( size_t i = 0; i < 10; ++i ) {
+  for ( size_t i = 0; i < 1; ++i ) {
     vector< vector< size_t > > facets = computeConvexHull( points );
   }
 }

@@ -3,9 +3,11 @@
 #include <assert.h>
 #include <cmath>
 #include <cstdlib>
+#include <iostream>
 #include <numeric>
 #include <stdexcept>
 #include <set>
+
 
 /* HEADER */
 #include "ConvexHull.h"
@@ -20,6 +22,7 @@ typedef list< Facet >::const_iterator FacetConstIt;
 
 /* Anonymous namespace functions declarations */
 namespace {
+  vector< vector< size_t > > computeConvexHull_( const vector< vector< double > >& unperturbedPoints, double perturbation, size_t depth );
   list< Facet > getInitialSimplex_( const vector< vector< double > >& points );
   vector< vector< double > > perturbPoints_( const vector< vector< double > >& points, double perturbation );
   void updateFacetCenterPoints_( const vector< vector< double > >& points, list< Facet >& facets );
@@ -40,6 +43,13 @@ namespace {
   void throwExceptionIfNotAllPointsHaveCorrectDimension_( const vector< vector< double > >& points, size_t dimension );
   void throwExceptionIfTooFewPoints_( const vector< vector< double > >& points );
   void throwExceptionIfInvalidPerturbation_( double perturbation, const vector< vector< double > >& points );
+
+  struct SecondComparator { bool operator() ( const pair< FacetIt, vector< size_t > >& p1,
+                                              const pair< FacetIt, vector< size_t > >& p2 ) const
+  { return p1.second < p2.second; } };
+  struct OutsideSetSizeComparator { bool operator() ( const FacetIt& fIt1,
+                                                      const FacetIt& fIt2 ) const
+  { return fIt1->outsideIndices.size() < fIt2->outsideIndices.size(); } };
 }
 
 vector< vector< size_t > > computeConvexHull( const vector< vector< double > >& unperturbedPoints,
@@ -49,36 +59,8 @@ vector< vector< size_t > > computeConvexHull( const vector< vector< double > >& 
   throwExceptionIfTooFewPoints_( unperturbedPoints );
   const size_t dimension = unperturbedPoints.front().size();
   throwExceptionIfNotAllPointsHaveCorrectDimension_( unperturbedPoints, dimension );
-  throwExceptionIfInvalidPerturbation_( perturbation, unperturbedPoints );
 
-  // Perform perturbation of the input points
-  const vector< vector< double > >& points = perturbation > 0.0 ? perturbPoints_( unperturbedPoints, perturbation )
-                                                                : unperturbedPoints;
-
-  // Get the initial simplex to use as a seed polytope
-  list< Facet > facets = getInitialSimplex_( points );
-
-  try {
-    // Compute the convex hull for the set of all points using the seed polytope
-    growConvexHull( points, facets );
-  }
-  catch ( invalid_argument e ) {
-    // Failed to grow the convex hull. Change perturbation and retry
-    double newPerturbation = perturbation == 0.0 ? 1e-9 : 100 * perturbation;
-    throwExceptionIfInvalidPerturbation_( newPerturbation, unperturbedPoints );
-    return computeConvexHull( unperturbedPoints, newPerturbation );
-  }
-
-  // Assert that the facets' sets of vertices have the correct dimension
-  throwExceptionIfNotAllFacetsFullDimensional_( facets, dimension );
-
-  // Construct vector of vertex indices for the facets of the convex hull
-  vector< vector< size_t > > vertexIndices( facets.size(), vector< size_t >( dimension ) );
-  size_t fi = 0;
-  for ( FacetIt fIt = facets.begin(); fIt != facets.end(); ++fIt, ++fi ) {
-    vertexIndices[ fi ].swap( fIt->vertexIndices );
-  }
-  return vertexIndices;
+  return computeConvexHull_( unperturbedPoints, perturbation, 0 );
 }
 
 void growConvexHull( const vector< vector< double > >& points,
@@ -114,16 +96,18 @@ void growConvexHull( const vector< vector< double > >& points,
       facetsWithOutsidePoints.push_back( fIt );
     }
   }
+  facetsWithOutsidePoints.sort( OutsideSetSizeComparator() );
 
   // Sort vertex indices
   for ( FacetIt fIt = facets.begin(); fIt != facets.end(); ++fIt ) {
     sort( fIt->vertexIndices.begin(), fIt->vertexIndices.end() );
   }
 
+
   // Create new facets using the outside points
   while ( facetsWithOutsidePoints.size() > 0 ) {
-    FacetIt facetIt = facetsWithOutsidePoints.back();
-    facetsWithOutsidePoints.pop_back();
+    FacetIt facetIt = facetsWithOutsidePoints.front();
+    facetsWithOutsidePoints.pop_front();
 
     // From the outside set of the current facet, find the farthest point
     const size_t apexIndex = getAndEraseFarthestPointFromOutsideSet_( points, *facetIt );
@@ -150,12 +134,17 @@ void growConvexHull( const vector< vector< double > >& points,
       facets.erase( visibleFacets[ vi ] );
     }
 
-    // Add the new facets with outside points
+    // Remove new facets with empty outside sets
+    list< FacetIt > newFacetsWithOutsidePoints;
     for ( size_t ni = 0; ni < newFacets.size(); ++ni ) {
       if ( newFacets[ ni ]->outsideIndices.size() > 0 ) {
-        facetsWithOutsidePoints.push_back( newFacets[ ni ] );
+        newFacetsWithOutsidePoints.push_back( newFacets[ ni ] );
       }
     }
+
+    // Add the new facets with outside points
+    newFacetsWithOutsidePoints.sort( OutsideSetSizeComparator() );
+    facetsWithOutsidePoints.merge( newFacetsWithOutsidePoints, OutsideSetSizeComparator() );
   }
 
   // Assert that the facets constitute a convex polytope
@@ -165,6 +154,46 @@ void growConvexHull( const vector< vector< double > >& points,
 
 /* Anonymous namespace functions */
 namespace {
+vector< vector< size_t > > computeConvexHull_( const vector< vector< double > >& unperturbedPoints,
+                                               double perturbation,
+                                               size_t depth )
+{
+  // Check that the input data is correct
+  throwExceptionIfInvalidPerturbation_( perturbation, unperturbedPoints );
+
+  // Perform perturbation of the input points
+  const vector< vector< double > >& points = perturbation > 0.0 ? perturbPoints_( unperturbedPoints, perturbation )
+                                                                : unperturbedPoints;
+
+  // Get the initial simplex to use as a seed polytope
+  list< Facet > facets = getInitialSimplex_( points );
+
+  try {
+    // Compute the convex hull for the set of all points using the seed polytope
+    growConvexHull( points, facets );
+  }
+  catch ( invalid_argument e ) {
+    // Failed to grow the convex hull. Change perturbation and retry
+    double newPerturbation = perturbation == 0.0 ? 1e-9 : 100 * perturbation;
+    throwExceptionIfInvalidPerturbation_( newPerturbation, unperturbedPoints );
+    if ( depth > 2 ) {
+      throw invalid_argument( "No solution was found althogh perturbation was increased 3 times." );
+    }
+    return computeConvexHull_( unperturbedPoints, newPerturbation, depth + 1 );
+  }
+
+  // Assert that the facets' sets of vertices have the correct dimension
+  const size_t dimension = unperturbedPoints.front().size();
+  throwExceptionIfNotAllFacetsFullDimensional_( facets, dimension );
+
+  // Construct vector of vertex indices for the facets of the convex hull
+  vector< vector< size_t > > vertexIndices( facets.size(), vector< size_t >( dimension ) );
+  size_t fi = 0;
+  for ( FacetIt fIt = facets.begin(); fIt != facets.end(); ++fIt, ++fi ) {
+    vertexIndices[ fi ].swap( fIt->vertexIndices );
+  }
+  return vertexIndices;
+}
 
 list< Facet > getInitialSimplex_( const vector< vector< double > >& points )
 {
@@ -361,10 +390,6 @@ vector< FacetIt > getVisibleFacets_( const vector< double >& apex,
   }
   return visibleFacets;
 }
-
-struct SecondComparator { bool operator() ( const pair< FacetIt, vector< size_t > >& p1,
-                                            const pair< FacetIt, vector< size_t > >& p2 )
-                          { return p1.second < p2.second; } };
 
 vector< FacetIt > createNewFacets_( size_t apexIndex,
                                     const vector< pair< FacetIt, FacetIt > >& horizon,
@@ -636,6 +661,14 @@ void throwExceptionIfInvalidPerturbation_( double perturbation,
   if ( perturbation < 0.0 ) {
     throw invalid_argument( "Perturbation must be nonnegative." );
   }
+  if ( perturbation > 1e-3 ) {
+    throw invalid_argument( "Perturbation too large." );
+  }
+  /*
+  if ( perturbation == 0.0 ) {
+    return;
+  }
+
   double maxSquareDistance = 0.0;
   for ( size_t i = 0; i < points.size(); ++i ) {
     for ( size_t j = i + 1; j < points.size(); ++j ) {
@@ -650,6 +683,7 @@ void throwExceptionIfInvalidPerturbation_( double perturbation,
   if ( perturbation * perturbation > maxSquareDistance ) {
     throw invalid_argument( "Perturbation is larger than 1 percent of the maximum distance between points." );
   }
+  */
 }
 
 } // namespace
