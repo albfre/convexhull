@@ -23,7 +23,8 @@ typedef list< Facet >::const_iterator FacetConstIt;
 /* Anonymous namespace functions declarations */
 namespace {
   vector< vector< size_t > > computeConvexHull_( const vector< vector< double > >& unperturbedPoints, double perturbation, size_t depth );
-  list< Facet > getInitialSimplex_( const vector< vector< double > >& points );
+  vector< size_t > getInitialPolytopeVertexIndices_( const vector< vector< double > >& points );
+  void getInitialSimplex_( const vector< vector< double > >& points, list< Facet >& facets );
   vector< vector< double > > perturbPoints_( const vector< vector< double > >& points, double perturbation );
   void updateFacetCenterPoints_( const vector< vector< double > >& points, list< Facet >& facets );
   vector< double > computeOrigin_( const list< Facet >& facets );
@@ -171,8 +172,42 @@ vector< vector< size_t > > computeConvexHull_( const vector< vector< double > >&
   const vector< vector< double > >& points = perturbation > 0.0 ? perturbPoints_( unperturbedPoints, perturbation )
                                                                 : unperturbedPoints;
 
-  // Get the initial simplex to use as a seed polytope
-  list< Facet > facets = getInitialSimplex_( points );
+  // Get the indices of the extreme points
+  const vector< size_t > initialPointIndices = getInitialPolytopeVertexIndices_( points );
+  const size_t dimension = unperturbedPoints.front().size();
+  assert( initialPointIndices.size() >= dimension + 1 );
+
+  // Create a vector of the extreme points
+  vector< vector< double > > initialPoints;
+  initialPoints.reserve( initialPointIndices.size() );
+  for ( size_t i = 0; i < initialPointIndices.size(); ++i ) {
+    initialPoints.push_back( points[ initialPointIndices[ i ] ] );
+  }
+
+  // Create simplex using the extreme points
+  list< Facet > facets;
+  getInitialSimplex_( initialPoints, facets );
+
+  try {
+    // Compute the convex hull for the set of all points using the seed polytope
+    growConvexHull( initialPoints, facets );
+  }
+  catch ( invalid_argument e ) {
+    // Failed to grow the convex hull. Change perturbation and retry
+    double newPerturbation = perturbation == 0.0 ? 1e-9 : 100 * perturbation;
+    throwExceptionIfInvalidPerturbation_( newPerturbation, unperturbedPoints );
+    if ( depth > 2 ) {
+      throw invalid_argument( "No solution was found althogh perturbation was increased 3 times." );
+    }
+    return computeConvexHull_( unperturbedPoints, newPerturbation, depth + 1 );
+  }
+
+  // Set the extreme point indices to the indices in the full set of points
+  for ( FacetIt fIt = facets.begin(); fIt != facets.end(); ++fIt ) {
+    for ( size_t i = 0; i < fIt->vertexIndices.size(); ++i ) {
+      fIt->vertexIndices[ i ] = initialPointIndices[ fIt->vertexIndices[ i ] ];
+    }
+  }
 
   try {
     // Compute the convex hull for the set of all points using the seed polytope
@@ -189,7 +224,6 @@ vector< vector< size_t > > computeConvexHull_( const vector< vector< double > >&
   }
 
   // Assert that the facets' sets of vertices have the correct dimension
-  const size_t dimension = unperturbedPoints.front().size();
   throwExceptionIfNotAllFacetsFullDimensional_( facets, dimension );
 
   // Construct vector of vertex indices for the facets of the convex hull
@@ -201,14 +235,9 @@ vector< vector< size_t > > computeConvexHull_( const vector< vector< double > >&
   return vertexIndices;
 }
 
-list< Facet > getInitialSimplex_( const vector< vector< double > >& points )
+vector< size_t > getInitialPolytopeVertexIndices_( const vector< vector< double > >& points )
 {
   const size_t dimension = points.size() == 0 ? 0 : points.front().size();
-  if ( points.size() <= dimension ) {
-    throw invalid_argument( "Too few input points to construct convex hull." );
-  }
-  list< Facet > facets;
-
   set< size_t > startPointIndexSet;
   for ( size_t d = 0; d < dimension; ++d ) {
     vector< vector< double > >::const_iterator pItMin = min_element( points.begin(), points.end(), DimensionComparator( d ) );
@@ -216,20 +245,33 @@ list< Facet > getInitialSimplex_( const vector< vector< double > >& points )
     startPointIndexSet.insert( pItMin - points.begin() );
     startPointIndexSet.insert( pItMax - points.begin() );
   }
+  vector< size_t > startPointIndices;
+  startPointIndices.insert( startPointIndices.end(), startPointIndexSet.begin(), startPointIndexSet.end() );
+  startPointIndices.reserve( dimension + 1 );
   size_t i = 0;
-  while ( startPointIndexSet.size() < dimension + 1 && i < points.size() ) {
-    startPointIndexSet.insert( i );
+  while ( startPointIndices.size() < dimension + 1 && i < points.size() ) {
+    if ( find( startPointIndices.begin(), startPointIndices.end(), i ) == startPointIndices.end() ) {
+      startPointIndices.push_back( i );
+    }
     ++i;
   }
-  assert( startPointIndexSet.size() > dimension );
-  vector< size_t > startPointIndices( startPointIndexSet.begin(), startPointIndexSet.end() );
+  return startPointIndices;
+}
+
+void getInitialSimplex_( const vector< vector< double > >& points, list< Facet >& facets )
+{
+  facets.clear();
+  const size_t dimension = points.size() == 0 ? 0 : points.front().size();
+  if ( points.size() <= dimension ) {
+    throw invalid_argument( "Too few input points to construct convex hull." );
+  }
 
   // Create initial simplex using the (dimension + 1) first points.
   // The facets have vertices [0, ..., dimension - 1], [1, ..., dimension], ..., [dimension, 0, ..., dimension - 2]
   for ( size_t i = 0; i <= dimension; ++i ) {
     vector< size_t > vertexIndices( dimension );
     for ( size_t j = 0; j < dimension; ++j ) {
-      vertexIndices[ j ] = startPointIndices[ ( i + j ) % ( dimension + 1 ) ];
+      vertexIndices[ j ] = ( i + j ) % ( dimension + 1 );
     }
     facets.push_back( Facet( vertexIndices ) );
   }
@@ -242,8 +284,6 @@ list< Facet > getInitialSimplex_( const vector< vector< double > >& points )
       }
     }
   }
-
-  return facets;
 }
 
 vector< vector< double > > perturbPoints_( const vector< vector< double > >& points,
