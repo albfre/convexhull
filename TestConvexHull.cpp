@@ -199,13 +199,13 @@ void testSpeedRandom_()
 {
   vector< double > data;
   // these 1e6 points take 0.6 s in qhull
-  ifstream fileStream( "points3d-1e4.txt" );
+  ifstream fileStream( "points3d-1e6.txt" );
   copy( istream_iterator< double >( fileStream ),
         istream_iterator< double >(),
         back_inserter< vector< double > >( data ) );
 
   vector< vector< double > > points;
-  points.reserve( 1e5 );
+  points.reserve( 1e6 );
   vector< double > point;
   for ( size_t i = 0; i < data.size(); ++i ) {
     point.push_back( data[ i ] );
@@ -214,8 +214,9 @@ void testSpeedRandom_()
       point.clear();
     }
   }
+  cerr << "start" << endl;
   for ( size_t i = 0; i < 1; ++i ) {
-    vector< vector< size_t > > facets = computeConvexHull( points );
+    vector< vector< size_t > > facets = computeConvexHull( points, 1e-9 );
     cerr << facets.size() << endl;
   }
 }
@@ -223,7 +224,7 @@ void testSpeedRandom_()
 void testSpeedUniform_()
 {
   vector< vector< double > > points;
-  size_t side = 100;
+  size_t side = 150;
   points.reserve( side * side );
   for ( size_t i = 0; i < side; ++i ) {
     for ( size_t j = 0; j < side; ++j ) {

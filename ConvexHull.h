@@ -22,11 +22,20 @@ namespace ConvexHull {
       // indices to a set of points that are outside to the facet
       std::vector< size_t > outsideIndices;
 
+      // the offset of the facet from the origin
       double offset;
 
+      // indicates whether the facet is visible from the point under consideration
       bool visible;
 
+      // indicates whether the facet has been visited in the search for visible facets
       bool visited;
+
+      // the index of the outside point that is farthest from the facet
+      size_t farthestOutsidePointIndex;
+
+      // the distance from the farthest point to the facet
+     double farthestOutsidePointDistance;
   };
 
   // Returns the vertex indices of the facets constituting the convex hull of the input points
