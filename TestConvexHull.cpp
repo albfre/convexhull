@@ -199,13 +199,13 @@ void testSpeedRandom_()
 {
   vector< double > data;
   // these 1e6 points take 0.6 s in qhull
-  ifstream fileStream( "points3d-1e6.txt" );
+  ifstream fileStream( "points3d-1e5.txt" );
   copy( istream_iterator< double >( fileStream ),
         istream_iterator< double >(),
         back_inserter< vector< double > >( data ) );
 
   vector< vector< double > > points;
-  points.reserve( 1e6 );
+  points.reserve( 1e5 );
   vector< double > point;
   for ( size_t i = 0; i < data.size(); ++i ) {
     point.push_back( data[ i ] );
