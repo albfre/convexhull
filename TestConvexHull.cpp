@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <assert.h>
+#include <cstdlib>
 #include <iostream>
 #include <sstream>
 
@@ -195,24 +196,17 @@ bool testConvexHull3D_()
   return t.endTest();
 }
 
-void testSpeedRandom_()
+void testSpeedRandom_( size_t numOfPoints, size_t dimension )
 {
-  vector< double > data;
-  // these 1e6 points take 0.6 s in qhull
-  ifstream fileStream( "points3d-1e5.txt" );
-  copy( istream_iterator< double >( fileStream ),
-        istream_iterator< double >(),
-        back_inserter< vector< double > >( data ) );
-
+  srand( 123 );
   vector< vector< double > > points;
-  points.reserve( 1e5 );
-  vector< double > point;
-  for ( size_t i = 0; i < data.size(); ++i ) {
-    point.push_back( data[ i ] );
-    if ( point.size() == 3 ) {
-      points.push_back( point );
-      point.clear();
+  points.reserve( numOfPoints );
+  for ( size_t i = 0; i < numOfPoints; ++i ) {
+    vector< double > point( dimension );
+    for ( size_t j = 0; j < dimension; ++j ) {
+      point[ j ] = double( rand() ) / RAND_MAX;
     }
+    points.push_back( point );
   }
   cerr << "start" << endl;
   for ( size_t i = 0; i < 1; ++i ) {
@@ -235,7 +229,9 @@ void testSpeedUniform_()
       points.push_back( point );
     }
   }
-  vector< vector< size_t > > facets = computeConvexHull( points, 1e-8 );
+  cerr << "start" << endl;
+  vector< vector< size_t > > facets = computeConvexHull( points, 1e-9 );
+  cerr << facets.size() << endl;
 }
 
 int main( int argc, const char* argv[] )
@@ -250,7 +246,19 @@ int main( int argc, const char* argv[] )
   }
   else {
     if ( atoi( argv[ 1 ] ) == 0 ) {
-      testSpeedRandom_();
+      size_t numOfPoints = 1e5;
+      size_t dimension = 3;
+      if ( argc > 2 ) {
+        int np = atoi( argv[ 2 ] );
+        assert( np >= 0 );
+        numOfPoints = size_t( np );
+      }
+      if ( argc > 3 ) {
+        int dim = atoi( argv[ 3 ] );
+        assert( dim > 0 );
+        dimension = size_t( dim );
+      }
+      testSpeedRandom_( numOfPoints, dimension );
     }
     else {
       testSpeedUniform_();
