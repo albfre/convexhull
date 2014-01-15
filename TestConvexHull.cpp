@@ -260,8 +260,12 @@ int main( int argc, const char* argv[] )
       }
       testSpeedRandom_( numOfPoints, dimension );
     }
+    else if ( atoi( argv[ 1 ] ) == 1 ) {
+      testSpeedUniform_();
+    }
     else {
       testSpeedUniform_();
+      testSpeedRandom_( 1e6, 3 );
     }
   }
 

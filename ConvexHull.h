@@ -35,7 +35,7 @@ namespace ConvexHull {
       size_t farthestOutsidePointIndex;
 
       // the distance from the farthest point to the facet
-     double farthestOutsidePointDistance;
+      double farthestOutsidePointDistance;
   };
 
   // Returns the vertex indices of the facets constituting the convex hull of the input points

@@ -1,11 +1,11 @@
 CC = g++
-CFLAGS = -g -Wall -pedantic
+CFLAGS = -g -O2 -Wall -pedantic
 FILE = ConvexHull
 SRCS = $(FILE).cpp $(FILE).h
 OBJS = $(FILE).o
 TEST = Test$(FILE)
 TESTSRC = $(TEST).cpp
-PROFILECFLAGS = -pg -Wall -pedantic
+PROFILECFLAGS = -p -Wall -pedantic
 
 all: $(SRCS) \
 ; $(CC) $(CFLAGS) -c $(SRCS)
