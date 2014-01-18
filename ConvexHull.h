@@ -22,6 +22,8 @@ namespace ConvexHull {
       // indices to a set of points that are outside to the facet
       std::vector< size_t > outsideIndices;
 
+      std::list< std::list< Facet >::iterator >::iterator outsideIt;
+
       // the offset of the facet from the origin
       double offset;
 
@@ -36,6 +38,8 @@ namespace ConvexHull {
 
       // the distance from the farthest point to the facet
       double farthestOutsidePointDistance;
+
+      bool outsideSet;
   };
 
   // Returns the vertex indices of the facets constituting the convex hull of the input points

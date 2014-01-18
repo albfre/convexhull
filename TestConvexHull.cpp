@@ -246,7 +246,7 @@ int main( int argc, const char* argv[] )
   }
   else {
     if ( atoi( argv[ 1 ] ) == 0 ) {
-      size_t numOfPoints = 1e5;
+      size_t numOfPoints = 1e6;
       size_t dimension = 3;
       if ( argc > 2 ) {
         int np = atoi( argv[ 2 ] );

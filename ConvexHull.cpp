@@ -20,7 +20,8 @@ Facet::Facet( const vector< size_t >& _vertexIndices ) :
   vertexIndices( _vertexIndices ),
   visible( false ),
   visited( false ),
-  farthestOutsidePointDistance( 0.0 )
+  farthestOutsidePointDistance( 0.0 ),
+  outsideSet( false )
 {}
 
 typedef list< Facet >::iterator FacetIt;
@@ -36,7 +37,6 @@ namespace {
   vector< double > computeOrigin_( const list< Facet >& facets );
   void updateFacetNormalAndOffset_( const vector< vector< double > >& points, const vector< double >& origin, Facet& facet, vector< vector< double > >& preallocatedA );
   void initializeOutsideSets_( const vector< vector< double > >& points, list< Facet >& facets );
-  FacetIt getNextFacetIt_( vector< FacetIt>& facetsWithOutsidePoints );
   size_t getAndEraseFarthestPointFromOutsideSet_( const vector< vector< double > >& points, Facet& facet );
   vector< FacetIt > getVisibleFacets_( const vector< double >& apex, FacetIt facetIt, vector< pair< FacetIt, FacetIt > >& horizon );
   vector< FacetIt > createNewFacets_( size_t apexIndex, const vector< pair< FacetIt, FacetIt > >& horizon, list< Facet >& facets );
@@ -123,8 +123,22 @@ void growConvexHull( const vector< vector< double > >& points,
   }
 
   // Create new facets using the outside points
+  sort( facetsWithOutsidePoints.begin(), facetsWithOutsidePoints.end(), FarthestPointDistanceComparator() );
+  size_t numVis = 0;
+  size_t iters = 0;
+  size_t totalOut = 0;
+  size_t totalNew = 0;
+  vector< FacetIt > allVisibleFacets;
   while ( facetsWithOutsidePoints.size() > 0 ) {
-    FacetIt facetIt = getNextFacetIt_( facetsWithOutsidePoints );
+    while ( facetsWithOutsidePoints.size() > 0 &&
+            ( facetsWithOutsidePoints.back()->visible ||
+              facetsWithOutsidePoints.back()->outsideIndices.size() == 0 ) ) {
+      facetsWithOutsidePoints.pop_back();
+    }
+    if ( facetsWithOutsidePoints.size() == 0 ) {
+      break;
+    }
+    FacetIt facetIt = facetsWithOutsidePoints.back();
 
     // From the outside set of the current facet, find the farthest point
     const size_t apexIndex = getAndEraseFarthestPointFromOutsideSet_( points, *facetIt );
@@ -145,23 +159,44 @@ void growConvexHull( const vector< vector< double > >& points,
     // Assign the points belonging to visible facets to the newly create facets
     updateOutsideSets_( points, visibleFacets, newFacets );
 
-    // Remove the visible facets from the sets of facets
-    {
-      vector< FacetIt >::const_iterator endIt = remove_if( facetsWithOutsidePoints.begin(), facetsWithOutsidePoints.end(), IsVisiblePredicate() );
-      facetsWithOutsidePoints.resize( endIt - facetsWithOutsidePoints.begin() );
-    }
-    for ( vector< FacetIt >::const_iterator vIt = visibleFacets.begin(); vIt != visibleFacets.end(); ++vIt ) {
-      facets.erase( *vIt );
-    }
+    allVisibleFacets.insert( allVisibleFacets.end(), visibleFacets.begin(), visibleFacets.end() );
+    ++iters;
+    totalOut += facetsWithOutsidePoints.size();
+    totalNew += newFacets.size();
+    numVis += visibleFacets.size();
 
     // Add the new facets with outside points to the vector of all facets with outside points
-    facetsWithOutsidePoints.reserve( facetsWithOutsidePoints.size() + newFacets.size() );
+    vector< FacetIt > newFacetsWithOutsidePoints;
+    newFacetsWithOutsidePoints.reserve( newFacets.size() );
     for ( size_t ni = 0; ni < newFacets.size(); ++ni ) {
       if ( newFacets[ ni ]->outsideIndices.size() > 0 ) {
-        facetsWithOutsidePoints.push_back( newFacets[ ni ] );
+        newFacetsWithOutsidePoints.push_back( newFacets[ ni ] );
       }
     }
+    sort( newFacetsWithOutsidePoints.begin(), newFacetsWithOutsidePoints.end(), FarthestPointDistanceComparator() );
+    if ( newFacetsWithOutsidePoints.size() == 0 ||
+         facetsWithOutsidePoints.size() == 0 ||
+         newFacetsWithOutsidePoints.back()->farthestOutsidePointDistance > facetsWithOutsidePoints.back()->farthestOutsidePointDistance ) {
+      facetsWithOutsidePoints.insert( facetsWithOutsidePoints.end(), newFacetsWithOutsidePoints.begin(), newFacetsWithOutsidePoints.end() );
+    }
+    else {
+      // facetsWithOutsidePoints.back() has farther point than newFacetsWithOutsidePoints.back()
+      facetsWithOutsidePoints.insert( facetsWithOutsidePoints.begin(), newFacetsWithOutsidePoints.begin(), newFacetsWithOutsidePoints.end() );
+    }
   }
+  cerr << "iter: " << iters << " totalOut: " << totalOut << " totalNew: " << totalNew << " numvis: " << numVis << endl;
+  for ( vector< FacetIt >::const_iterator vIt = allVisibleFacets.begin(); vIt != allVisibleFacets.end(); ++vIt ) {
+    facets.erase( *vIt );
+  }
+/*  for( FacetIt fIt = facets.begin(); fIt != facets.end(); ) {
+    if ( fIt->visible ) {
+      facets.erase( fIt++ );
+    }
+    else{
+      ++fIt;
+    }
+  }
+  */
 
   // Assert that the facets constitute a convex polytope
   updateFacetCenterPoints_( points, facets );
@@ -418,14 +453,6 @@ void initializeOutsideSets_( const vector< vector< double > >& points,
       }
     }
   }
-}
-
-FacetIt getNextFacetIt_( vector< FacetIt >& facetsWithOutsidePoints )
-{
-  if ( facetsWithOutsidePoints.size() >= 100 ) {
-    return facetsWithOutsidePoints.back();
-  }
-  return *max_element( facetsWithOutsidePoints.begin(), facetsWithOutsidePoints.end(), FarthestPointDistanceComparator() );
 }
 
 size_t getAndEraseFarthestPointFromOutsideSet_( const vector< vector< double > >& points,
