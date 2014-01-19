@@ -230,7 +230,7 @@ void testSpeedUniform_()
     }
   }
   cerr << "start" << endl;
-  vector< vector< size_t > > facets = computeConvexHull( points, 1e-9 );
+  vector< vector< size_t > > facets = computeConvexHull( points, 1e-8 );
   cerr << facets.size() << endl;
 }
 
