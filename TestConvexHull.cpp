@@ -196,7 +196,7 @@ bool testConvexHull3D_()
   return t.endTest();
 }
 
-void testSpeedRandom_( size_t numOfPoints, size_t dimension )
+size_t testSpeedRandom_( size_t numOfPoints, size_t dimension )
 {
   srand( 123 );
   vector< vector< double > > points;
@@ -209,13 +209,12 @@ void testSpeedRandom_( size_t numOfPoints, size_t dimension )
     points.push_back( point );
   }
   cerr << "start" << endl;
-  for ( size_t i = 0; i < 1; ++i ) {
-    vector< vector< size_t > > facets = computeConvexHull( points, 1e-9 );
-    cerr << facets.size() << endl;
-  }
+  vector< vector< size_t > > facets = computeConvexHull( points, 1e-9 );
+  cerr << facets.size() << endl;
+  return facets.size();
 }
 
-void testSpeedUniform_()
+size_t testSpeedUniform_()
 {
   vector< vector< double > > points;
   size_t side = 150;
@@ -232,6 +231,28 @@ void testSpeedUniform_()
   cerr << "start" << endl;
   vector< vector< size_t > > facets = computeConvexHull( points, 1e-8 );
   cerr << facets.size() << endl;
+  return facets.size();
+}
+
+bool testConvexHullMultiple_()
+{
+  Test t( "Computing 1D-10D convex hull." );
+  size_t expected[ 10 ] = { 2, 11, 38, 149, 534, 1585, 5596, 15353, 41822, 101718 };
+
+  bool exceptionCaught = false;
+  for ( size_t i = 0; i < 10; ++i ) {
+    try {
+      t.verify( expected[ i ], testSpeedRandom_( 50, i + 1 ), "Number of facets is correct" );
+    }
+    catch ( exception e ) {
+      exceptionCaught = true;
+    }
+  }
+  t.verify( false, exceptionCaught, "No exception" );
+
+
+
+  return t.endTest();
 }
 
 int main( int argc, const char* argv[] )
@@ -242,6 +263,7 @@ int main( int argc, const char* argv[] )
     Test t( "Convex hull suite" );
     t.verify( testConvexHull2D_(), "Test 2D" );
     t.verify( testConvexHull3D_(), "Test 3D" );
+    t.verify( testConvexHullMultiple_(), "Test 1D-10D" );
     t.endTest( true );
   }
   else {

@@ -38,6 +38,7 @@ namespace {
   void initializeOutsideSets_( const vector< vector< double > >& points, list< Facet >& facets );
   size_t getAndEraseFarthestPointFromOutsideSet_( const vector< vector< double > >& points, Facet& facet );
   void getVisibleFacets_( const vector< double >& apex, FacetIt facetIt, vector< FacetIt >& visibleFacets, vector< pair< FacetIt, FacetIt > >& horizon );
+  size_t getHashValue_( const vector< size_t >& v );
   vector< FacetIt > createNewFacets_( size_t apexIndex, const vector< pair< FacetIt, FacetIt > >& horizon, list< Facet >& facets, vector< FacetIt >& visibleFacets );
   void updateOutsideSets_( const vector< vector< double > >& points, const vector< size_t >& unassignedPointIndices, vector< FacetIt >& newFacets );
   vector< size_t > getOutsidePointIndicesFromFacets_( const vector< FacetIt >& facets, size_t startIndex );
@@ -53,9 +54,18 @@ namespace {
   void throwExceptionIfTooFewPoints_( const vector< vector< double > >& points );
   void throwExceptionIfInvalidPerturbation_( double perturbation, const vector< vector< double > >& points );
 
+
   struct SecondComparator {
-    bool operator() ( const pair< FacetIt, vector< size_t > >& p1,
-                      const pair< FacetIt, vector< size_t > >& p2 ) const { return p1.second < p2.second; } };
+    bool operator() ( const pair< FacetIt, vector< size_t >* >& p1,
+                      const pair< FacetIt, vector< size_t >* >& p2 ) const { return *p1.second < *p2.second; } };
+
+  struct FirstComparator {
+    bool operator() ( const pair< size_t, pair< FacetIt, vector< size_t >* > >& p1,
+                      const pair< size_t, pair< FacetIt, vector< size_t >* > >& p2 ) const { return p1.first < p2.first; } };
+
+  struct SecondSecondComparator {
+    bool operator() ( const pair< size_t, pair< FacetIt, vector< size_t >* > >& p1,
+                      const pair< size_t, pair< FacetIt, vector< size_t >* > >& p2 ) const { return *p1.second.second < *p2.second.second; } };
 
   struct FarthestPointDistanceComparator {
     bool operator() ( const FacetIt& fIt1,
@@ -500,6 +510,16 @@ void getVisibleFacets_( const vector< double >& apex,
   }
 }
 
+size_t getHashValue_( const vector< size_t >& v )
+{
+
+  size_t hash = 0;
+  for ( size_t i = 0; i < v.size(); ++i ) {
+    hash += v[ i ] * i * i;
+  }
+  return hash;
+}
+
 vector< FacetIt > createNewFacets_( size_t apexIndex,
                                     const vector< pair< FacetIt, FacetIt > >& horizon,
                                     list< Facet >& facets,
@@ -513,9 +533,7 @@ vector< FacetIt > createNewFacets_( size_t apexIndex,
   vector< Facet > tmpNewFacets;
   tmpNewFacets.reserve( horizon.size() );
 
-  vector< pair< FacetIt, vector< size_t > > > facetPeakPairs;
   const size_t dimension = horizon.front().first->vertexIndices.size();
-  facetPeakPairs.reserve( horizon.size() * ( dimension + 1 ) );
   for ( size_t hi = 0; hi < horizon.size(); ++hi ) {
     FacetIt visibleFacetIt = horizon[ hi ].first;
     FacetIt obscuredFacetIt = horizon[ hi ].second;
@@ -560,34 +578,59 @@ vector< FacetIt > createNewFacets_( size_t apexIndex,
     *fItIt = newFacetIt;
 
     obscuredFacetIt->visited = false;
+  }
 
+  vector< vector< size_t > > peaks( horizon.size() * ( dimension + 1 ), vector< size_t >( dimension - 1 ) );
+
+  vector< pair< size_t, pair< FacetIt, vector< size_t >* > > > facetPeakPairs;
+  facetPeakPairs.reserve( horizon.size() * ( dimension + 1 ) );
+
+  size_t peakIndex = 0;
+  for ( size_t ni = 0; ni < newFacets.size(); ++ni ) {
+    FacetIt& newFacetIt = newFacets[ ni ];
     // Find peaks
     for ( size_t i = 0; i < dimension; ++i ) {
       if ( newFacetIt->vertexIndices[ i ] == apexIndex ) {
         continue; // Skip ridges not containing the apex
       }
-      vector< size_t > peak;
-      peak.reserve( dimension - 1 );
+      size_t pi = 0;
       for ( size_t j = 0; j < dimension; ++j ) {
         // Skip apex
         if ( j == i || newFacetIt->vertexIndices[ j ] == apexIndex ) {
           continue;
         }
-        peak.push_back( newFacetIt->vertexIndices[ j ] );
+        peaks[ peakIndex ][ pi ] = newFacetIt->vertexIndices[ j ];
+        ++pi;
       }
-      sort( peak.begin(), peak.end() );
-      facetPeakPairs.push_back( make_pair( newFacetIt, peak ) );
+      // The vertexIndices are already sorted, so no need to sort them here.
+      // If the algorithm is changed to use non-sorted vertices, add the following line:
+      // sort( peaks[ peakIndex ].begin(), peaks[ peakIndex ].end() );
+      facetPeakPairs.push_back( make_pair( getHashValue_( peaks[ peakIndex ] ), make_pair( newFacetIt, &peaks[ peakIndex ] ) ) );
+      ++peakIndex;
     }
   }
-  sort( facetPeakPairs.begin(), facetPeakPairs.end(), SecondComparator() );
+  sort( facetPeakPairs.begin(), facetPeakPairs.end(), FirstComparator() );
+  for ( size_t i = 0; i < facetPeakPairs.size(); ) {
+    size_t j = i + 1;
+    while ( j < facetPeakPairs.size() && facetPeakPairs[ i ].first == facetPeakPairs[ j ].first ) {
+      ++j;
+    }
+    if ( j > i + 2 ) {
+      // More than two facets have the same hash value
+      sort( facetPeakPairs.begin() + i, facetPeakPairs.begin() + j, SecondSecondComparator() );
+    }
+    i = j;
+  }
 
   // Update neighbors
   for ( size_t ri = 0; ri + 1 < facetPeakPairs.size(); ri += 2 ) {
-    FacetIt firstFacetIt = facetPeakPairs[ ri ].first;
-    FacetIt secondFacetIt = facetPeakPairs[ ri + 1 ].first;
-    const vector< size_t >& peak1 = facetPeakPairs[ ri ].second;
-    const vector< size_t >& peak2 = facetPeakPairs[ ri + 1 ].second;
-    if ( peak1 != peak2 ) {
+    FacetIt firstFacetIt = facetPeakPairs[ ri ].second.first;
+    FacetIt secondFacetIt = facetPeakPairs[ ri + 1 ].second.first;
+    size_t hash1 = facetPeakPairs[ ri ].first;
+    size_t hash2 = facetPeakPairs[ ri + 1 ].first;
+    const vector< size_t >& peak1 = *facetPeakPairs[ ri ].second.second;
+    const vector< size_t >& peak2 = *facetPeakPairs[ ri + 1 ].second.second;
+    if ( hash1 != hash2 && peak1 != peak2 ) {
       throw invalid_argument( "Peaks must occur in pairs." );
     }
     firstFacetIt->neighbors.push_back( secondFacetIt );
