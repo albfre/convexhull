@@ -21,7 +21,9 @@ Facet::Facet( const vector< size_t >& _vertexIndices ) :
   visible( false ),
   visited( false ),
   farthestOutsidePointDistance( 0.0 )
-{}
+{
+  neighbors.reserve( vertexIndices.size() );
+}
 
 typedef list< Facet >::iterator FacetIt;
 typedef list< Facet >::const_iterator FacetConstIt;
@@ -39,7 +41,7 @@ namespace {
   size_t getAndEraseFarthestPointFromOutsideSet_( const vector< vector< double > >& points, Facet& facet );
   void getVisibleFacets_( const vector< double >& apex, FacetIt facetIt, vector< FacetIt >& visibleFacets, vector< pair< FacetIt, FacetIt > >& horizon );
   size_t getHashValue_( const vector< size_t >& v );
-  vector< FacetIt > createNewFacets_( size_t apexIndex, const vector< pair< FacetIt, FacetIt > >& horizon, list< Facet >& facets, vector< FacetIt >& visibleFacets );
+  vector< FacetIt > createNewFacets_( size_t apexIndex, const vector< pair< FacetIt, FacetIt > >& horizon, list< Facet >& facets, vector< FacetIt >& visibleFacets, vector< vector< size_t > >& preallocatedPeaks );
   void updateOutsideSets_( const vector< vector< double > >& points, const vector< size_t >& unassignedPointIndices, vector< FacetIt >& newFacets );
   vector< size_t > getOutsidePointIndicesFromFacets_( const vector< FacetIt >& facets, size_t startIndex );
   bool isFacetVisibleFromPoint_( const Facet& facet, const vector< double >& point );
@@ -54,18 +56,15 @@ namespace {
   void throwExceptionIfTooFewPoints_( const vector< vector< double > >& points );
   void throwExceptionIfInvalidPerturbation_( double perturbation, const vector< vector< double > >& points );
 
-
-  struct SecondComparator {
-    bool operator() ( const pair< FacetIt, vector< size_t >* >& p1,
-                      const pair< FacetIt, vector< size_t >* >& p2 ) const { return *p1.second < *p2.second; } };
-
   struct FirstComparator {
-    bool operator() ( const pair< size_t, pair< FacetIt, vector< size_t >* > >& p1,
-                      const pair< size_t, pair< FacetIt, vector< size_t >* > >& p2 ) const { return p1.first < p2.first; } };
+    template< class T, class U >
+    bool operator() ( const pair< T, U >& p1,
+                      const pair< T, U >& p2 ) const { return p1.first < p2.first; } };
 
-  struct SecondSecondComparator {
-    bool operator() ( const pair< size_t, pair< FacetIt, vector< size_t >* > >& p1,
-                      const pair< size_t, pair< FacetIt, vector< size_t >* > >& p2 ) const { return *p1.second.second < *p2.second.second; } };
+  struct SecondSecondPtrComparator {
+    template< class T, class U, class V >
+    bool operator() ( const pair< T, pair< U, V* > >& p1,
+                      const pair< T, pair< U, V* > >& p2 ) const { return *p1.second.second < *p2.second.second; } };
 
   struct FarthestPointDistanceComparator {
     bool operator() ( const FacetIt& fIt1,
@@ -139,14 +138,12 @@ void growConvexHull( const vector< vector< double > >& points,
   size_t totalOut = 0;
   size_t totalNew = 0;
   vector< FacetIt > visibleFacets;
+  vector< vector< size_t > > preallocatedPeaks;
   while ( facetsWithOutsidePoints.size() > 0 ) {
-    while ( facetsWithOutsidePoints.size() > 0 &&
-            ( facetsWithOutsidePoints.back()->visible ||
-              facetsWithOutsidePoints.back()->outsideIndices.size() == 0 ) ) {
+    if ( facetsWithOutsidePoints.back()->outsideIndices.size() == 0 ||
+         facetsWithOutsidePoints.back()->visible ) {
       facetsWithOutsidePoints.pop_back();
-    }
-    if ( facetsWithOutsidePoints.size() == 0 ) {
-      break;
+      continue;
     }
     FacetIt facetIt = facetsWithOutsidePoints.back();
 
@@ -163,7 +160,7 @@ void growConvexHull( const vector< vector< double > >& points,
     const vector< size_t >& unassignedPointIndices = getOutsidePointIndicesFromFacets_( visibleFacets, newVisibleFacetsStartIndex );
 
     // Create new facets from the apex
-    vector< FacetIt > newFacets = createNewFacets_( apexIndex, horizon, facets, visibleFacets );
+    vector< FacetIt > newFacets = createNewFacets_( apexIndex, horizon, facets, visibleFacets, preallocatedPeaks );
 
     // Update the facet normals and offsets
     for ( size_t ni = 0; ni < newFacets.size(); ++ni ) {
@@ -201,15 +198,6 @@ void growConvexHull( const vector< vector< double > >& points,
   for ( vector< FacetIt >::const_iterator vIt = visibleFacets.begin(); vIt != visibleFacets.end(); ++vIt ) {
     facets.erase( *vIt );
   }
-/*  for( FacetIt fIt = facets.begin(); fIt != facets.end(); ) {
-    if ( fIt->visible ) {
-      facets.erase( fIt++ );
-    }
-    else{
-      ++fIt;
-    }
-  }
-  */
 
   // Assert that the facets constitute a convex polytope
   updateFacetCenterPoints_( points, facets );
@@ -513,9 +501,12 @@ void getVisibleFacets_( const vector< double >& apex,
 size_t getHashValue_( const vector< size_t >& v )
 {
 
-  size_t hash = 0;
+  double hash = 0;
   for ( size_t i = 0; i < v.size(); ++i ) {
-    hash += v[ i ] * i * i;
+    size_t i2 = ( i + 1 ) * ( i + 1 );
+    size_t i4 = i2 * i2;
+    size_t i8 = i4 * i4;
+    hash += v[ v.size() - i - 1 ] * i8 * i4;
   }
   return hash;
 }
@@ -523,7 +514,8 @@ size_t getHashValue_( const vector< size_t >& v )
 vector< FacetIt > createNewFacets_( size_t apexIndex,
                                     const vector< pair< FacetIt, FacetIt > >& horizon,
                                     list< Facet >& facets,
-                                    vector< FacetIt >& visibleFacets )
+                                    vector< FacetIt >& visibleFacets,
+                                    vector< vector< size_t > >& preallocatedPeaks )
 {
   assert( horizon.size() > 0 );
 
@@ -580,10 +572,10 @@ vector< FacetIt > createNewFacets_( size_t apexIndex,
     obscuredFacetIt->visited = false;
   }
 
-  vector< vector< size_t > > peaks( horizon.size() * ( dimension + 1 ), vector< size_t >( dimension - 1 ) );
-
+  vector< vector< size_t > >& peaks = preallocatedPeaks;
+  peaks.resize( horizon.size() * ( dimension - 1 ), vector< size_t >( dimension > 1 ? dimension - 2 : 0 ) );
   vector< pair< size_t, pair< FacetIt, vector< size_t >* > > > facetPeakPairs;
-  facetPeakPairs.reserve( horizon.size() * ( dimension + 1 ) );
+  facetPeakPairs.reserve( horizon.size() * ( dimension - 1 ) );
 
   size_t peakIndex = 0;
   for ( size_t ni = 0; ni < newFacets.size(); ++ni ) {
@@ -610,6 +602,9 @@ vector< FacetIt > createNewFacets_( size_t apexIndex,
     }
   }
   sort( facetPeakPairs.begin(), facetPeakPairs.end(), FirstComparator() );
+
+  size_t nsort = 0;
+  size_t sortLength =0;
   for ( size_t i = 0; i < facetPeakPairs.size(); ) {
     size_t j = i + 1;
     while ( j < facetPeakPairs.size() && facetPeakPairs[ i ].first == facetPeakPairs[ j ].first ) {
@@ -617,10 +612,17 @@ vector< FacetIt > createNewFacets_( size_t apexIndex,
     }
     if ( j > i + 2 ) {
       // More than two facets have the same hash value
-      sort( facetPeakPairs.begin() + i, facetPeakPairs.begin() + j, SecondSecondComparator() );
+      sort( facetPeakPairs.begin() + i, facetPeakPairs.begin() + j, SecondSecondPtrComparator() );
+      ++nsort;
+      sortLength += j - i;
     }
     i = j;
   }
+  static size_t totsort = 0;
+  totsort +=nsort;
+  static size_t totsortlength = 0;
+  totsortlength += sortLength;
+  cerr << "nsort " << nsort << " sortlength " << sortLength <<  " totsort: " << totsort << " totsortlength " << totsortlength << " npeaks: " << peaks.size() << endl;
 
   // Update neighbors
   for ( size_t ri = 0; ri + 1 < facetPeakPairs.size(); ri += 2 ) {
