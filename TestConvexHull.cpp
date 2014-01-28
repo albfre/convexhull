@@ -225,7 +225,7 @@ size_t testSpeedRandom_( size_t numOfPoints, size_t dimension )
     ss << endl;
     points.push_back( point );
   }
-  file << ss;
+  file << ss.str();
   file.close();
   double start = clock();
   vector< vector< size_t > > facets = computeConvexHull( points, 1e-9 );
@@ -253,10 +253,10 @@ size_t testSpeedUniform_()
       ss << point[ 0 ] << " " << point[ 1 ] << " " << point[ 2 ] << endl;
     }
   }
-  file << ss;
+  file << ss.str();
   file.close();
   double start = clock();
-  vector< vector< size_t > > facets = computeConvexHull( points, 1e-9 );
+  vector< vector< size_t > > facets = computeConvexHull( points, 1e-8 );
   double stop = clock();
   cout << "Number of facets: " << facets.size() << endl;
   cout << "CPU seconds to compute hull (after input): " << ( stop - start ) / CLOCKS_PER_SEC << endl;

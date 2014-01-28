@@ -28,8 +28,10 @@ namespace ConvexHull {
       // indicates whether the facet is visible from the point under consideration
       bool visible;
 
-      // indicates whether the facet has been visited in the search for visible facets
-      bool visited;
+      // indicates whether the facet has been visited in the search for visible facets or in the assignment of outside points
+      size_t visitId;
+
+      bool isNewFacet;
 
       // the index of the outside point that is farthest from the facet
       size_t farthestOutsidePointIndex;
