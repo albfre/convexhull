@@ -133,10 +133,6 @@ void growConvexHull( const vector< vector< double > >& points,
 
   // Create new facets using the outside points
   sort( facetsWithOutsidePoints.begin(), facetsWithOutsidePoints.end(), FarthestPointDistanceComparator() );
-  size_t numVis = 0;
-  size_t iters = 0;
-  size_t totalOut = 0;
-  size_t totalNew = 0;
   vector< FacetIt > visibleFacets;
   vector< vector< size_t > > preallocatedPeaks;
   while ( facetsWithOutsidePoints.size() > 0 ) {
@@ -170,11 +166,6 @@ void growConvexHull( const vector< vector< double > >& points,
     // Assign the points belonging to visible facets to the newly create facets
     updateOutsideSets_( points, unassignedPointIndices, newFacets );
 
-    ++iters;
-    totalOut += facetsWithOutsidePoints.size();
-    totalNew += newFacets.size();
-    numVis += visibleFacets.size();
-
     // Add the new facets with outside points to the vector of all facets with outside points
     vector< FacetIt > newFacetsWithOutsidePoints;
     newFacetsWithOutsidePoints.reserve( newFacets.size() );
@@ -194,7 +185,6 @@ void growConvexHull( const vector< vector< double > >& points,
       facetsWithOutsidePoints.insert( facetsWithOutsidePoints.begin(), newFacetsWithOutsidePoints.begin(), newFacetsWithOutsidePoints.end() );
     }
   }
-  cerr << "iter: " << iters << " totalOut: " << totalOut << " totalNew: " << totalNew << " numvis: " << numVis << endl;
   for ( vector< FacetIt >::const_iterator vIt = visibleFacets.begin(); vIt != visibleFacets.end(); ++vIt ) {
     facets.erase( *vIt );
   }
@@ -315,8 +305,8 @@ void getInitialSimplex_( const vector< vector< double > >& points, list< Facet >
 
   // Create initial simplex using the (dimension + 1) first points.
   // The facets have vertices [0, ..., dimension - 1], [1, ..., dimension], ..., [dimension, 0, ..., dimension - 2]
+  vector< size_t > vertexIndices( dimension );
   for ( size_t i = 0; i <= dimension; ++i ) {
-    vector< size_t > vertexIndices( dimension );
     for ( size_t j = 0; j < dimension; ++j ) {
       vertexIndices[ j ] = ( i + j ) % ( dimension + 1 );
     }
@@ -399,19 +389,26 @@ void updateFacetNormalAndOffset_( const vector< vector< double > >& points,
   assert( facet.vertexIndices.size() == dimension );
   vector< vector< double > >& A = preallocatedA;
   A.resize( dimension );
-  for ( size_t i = 0; i < dimension; ++i ) {
+  const vector< double >& firstPoint = points[ facet.vertexIndices[ 0 ] ];
+  for ( size_t i = 0; i + 1 < dimension; ++i ) {
     A[ i ].resize( dimension );
     for ( size_t j = 0; j < dimension; ++j ) {
-      A[ i ][ j ] = points[ facet.vertexIndices[ i ] ][ j ] - origin[ j ];
+      A[ i ][ j ] = points[ facet.vertexIndices[ i + 1 ] ][ j ] - firstPoint[ j ];
     }
   }
-  vector< double > b( dimension, 1.0 );
+  vector< double > b( dimension, 0.0 );
+  b.back() = 1.0;
+  A.back() = b;
 
   // Solve A x = b
   overwritingSolveLinearSystemOfEquations_( A, b );
-  double sum = accumulate( b.begin(), b.end(), 0.0 );
+  double absSum = 0.0;
   for ( size_t i = 0; i < b.size(); ++i ) {
-    b[ i ] /= sum;
+    absSum += fabs( b[ i ] );
+  }
+
+  for ( size_t i = 0; i < b.size(); ++i ) {
+    b[ i ] /= absSum;
   }
 
   facet.normal.swap( b );
@@ -573,9 +570,10 @@ vector< FacetIt > createNewFacets_( size_t apexIndex,
   }
 
   vector< vector< size_t > >& peaks = preallocatedPeaks;
-  peaks.resize( horizon.size() * ( dimension - 1 ), vector< size_t >( dimension > 1 ? dimension - 2 : 0 ) );
-  vector< pair< size_t, pair< FacetIt, vector< size_t >* > > > facetPeakPairs;
-  facetPeakPairs.reserve( horizon.size() * ( dimension - 1 ) );
+  const size_t numOfPeaks = horizon.size() * ( dimension - 1 );
+  peaks.resize( numOfPeaks, vector< size_t >( dimension > 1 ? dimension - 2 : 0 ) );
+  vector< pair< size_t, pair< FacetIt, vector< size_t >* > > > peakHashes;
+  peakHashes.reserve( numOfPeaks );
 
   size_t peakIndex = 0;
   for ( size_t ni = 0; ni < newFacets.size(); ++ni ) {
@@ -597,41 +595,33 @@ vector< FacetIt > createNewFacets_( size_t apexIndex,
       // The vertexIndices are already sorted, so no need to sort them here.
       // If the algorithm is changed to use non-sorted vertices, add the following line:
       // sort( peaks[ peakIndex ].begin(), peaks[ peakIndex ].end() );
-      facetPeakPairs.push_back( make_pair( getHashValue_( peaks[ peakIndex ] ), make_pair( newFacetIt, &peaks[ peakIndex ] ) ) );
+      peakHashes.push_back( make_pair( getHashValue_( peaks[ peakIndex ] ), make_pair( newFacetIt, &peaks[ peakIndex ] ) ) );
       ++peakIndex;
     }
   }
-  sort( facetPeakPairs.begin(), facetPeakPairs.end(), FirstComparator() );
+  sort( peakHashes.begin(), peakHashes.end(), FirstComparator() );
 
-  size_t nsort = 0;
-  size_t sortLength =0;
-  for ( size_t i = 0; i < facetPeakPairs.size(); ) {
+  // If more than two peaks have the same hash values, it is necessary to sort them by the full vectors
+  for ( size_t i = 0; i < peakHashes.size(); ) {
     size_t j = i + 1;
-    while ( j < facetPeakPairs.size() && facetPeakPairs[ i ].first == facetPeakPairs[ j ].first ) {
+    while ( j < peakHashes.size() && peakHashes[ i ].first == peakHashes[ j ].first ) {
       ++j;
     }
     if ( j > i + 2 ) {
-      // More than two facets have the same hash value
-      sort( facetPeakPairs.begin() + i, facetPeakPairs.begin() + j, SecondSecondPtrComparator() );
-      ++nsort;
-      sortLength += j - i;
+      // More than two peaks have the same hash value
+      sort( peakHashes.begin() + i, peakHashes.begin() + j, SecondSecondPtrComparator() );
     }
     i = j;
   }
-  static size_t totsort = 0;
-  totsort +=nsort;
-  static size_t totsortlength = 0;
-  totsortlength += sortLength;
-  cerr << "nsort " << nsort << " sortlength " << sortLength <<  " totsort: " << totsort << " totsortlength " << totsortlength << " npeaks: " << peaks.size() << endl;
 
   // Update neighbors
-  for ( size_t ri = 0; ri + 1 < facetPeakPairs.size(); ri += 2 ) {
-    FacetIt firstFacetIt = facetPeakPairs[ ri ].second.first;
-    FacetIt secondFacetIt = facetPeakPairs[ ri + 1 ].second.first;
-    size_t hash1 = facetPeakPairs[ ri ].first;
-    size_t hash2 = facetPeakPairs[ ri + 1 ].first;
-    const vector< size_t >& peak1 = *facetPeakPairs[ ri ].second.second;
-    const vector< size_t >& peak2 = *facetPeakPairs[ ri + 1 ].second.second;
+  for ( size_t ri = 0; ri + 1 < peakHashes.size(); ri += 2 ) {
+    FacetIt firstFacetIt = peakHashes[ ri ].second.first;
+    FacetIt secondFacetIt = peakHashes[ ri + 1 ].second.first;
+    size_t hash1 = peakHashes[ ri ].first;
+    size_t hash2 = peakHashes[ ri + 1 ].first;
+    const vector< size_t >& peak1 = *peakHashes[ ri ].second.second;
+    const vector< size_t >& peak2 = *peakHashes[ ri + 1 ].second.second;
     if ( hash1 != hash2 && peak1 != peak2 ) {
       throw invalid_argument( "Peaks must occur in pairs." );
     }
@@ -729,19 +719,17 @@ double scalarProduct_( const vector< double >& a,
 void overwritingSolveLinearSystemOfEquations_( vector< vector< double > >& A,
                                                vector< double >& b )
 {
-  const string singularMatrix = "Singular matrix";
   const size_t n = A.size();
   assert( n > 0 );
   for ( size_t i = 0; i < A.size(); ++i ) {
     assert( A[ i ].size() == n );
   }
   assert( b.size() == n );
-  vector< size_t > pivot;
-  pivot.resize( n - 1 );
+  vector< size_t > pivot( n - 1 );
 
   // Outer product LU with partial pivoting
   // See Algorithm 3.4.1 in Golub and Van Loan - Matrix Computations, 4th Edition
-  for ( size_t k = 0; k + 1 < n; ++k ) {
+  for ( size_t k = 0; k < n; ++k ) {
     // Determine mu with k <= mu < n so abs( A( mu, k ) ) = max( A( k:n-1, k ) )
     size_t mu = k;
     double maxValue = fabs( A[ mu ][ k ] );
@@ -754,14 +742,17 @@ void overwritingSolveLinearSystemOfEquations_( vector< vector< double > >& A,
     }
     if ( maxValue == 0.0 ) {
       // Matrix is singular
-      throw invalid_argument( singularMatrix );
+      throw invalid_argument( "Singular matrix 1" );
     }
 
-    pivot[ k ] = mu;
-    A[ k ].swap( A[ mu ] );
+    if ( k != mu ) {
+      pivot[ k ] = mu;
+      A[ k ].swap( A[ mu ] );
+    }
 
     // rho = k + 1:n - 1
     // A(rho,k) = A(rho,k) / A(k,k)
+    /*
     double factor = 1.0 / A[ k ][ k ];
     for ( size_t i = k + 1; i < n; ++i ) {
       A[ i ][ k ] *= factor;
@@ -770,38 +761,47 @@ void overwritingSolveLinearSystemOfEquations_( vector< vector< double > >& A,
     // A(rho,rho) = A(rho,rho) - A(rho,k) * A(k,rho)
     for ( size_t i = k + 1; i < n; ++i ) {
       for ( size_t j = k + 1; j < n; ++j ) {
-       A[ i ][ j ] -= A[ i ][ k ] * A[ k ][ j ];
+        A[ i ][ j ] -= A[ i ][ k ] * A[ k ][ j ];
+      }
+    }
+    */
+
+    for ( size_t i = k + 1; i < n; ++i ) {
+      double factor = A[ i ][ k ] / A[ k ][ k ];
+      for ( size_t j = k + 1; j < n; ++j ) {
+        A[ i ][ j ] -= factor * A[ k ][ j ];
       }
     }
   }
-  if ( A[ n - 1 ][ n - 1 ] == 0.0 ) {
-    // Matrix is singular
-    throw invalid_argument( singularMatrix );
-  }
   // LU factorization completed
 
+  // No need to replace b by Pb, because b = [0,...,0,1]^T and P only permutes the n - 1 first rows, so Pb == b
+  //
   // Replace b by Pb
-  for ( size_t j = 0; j < n - 1; ++j ) {
-    swap( b[ j ], b[ pivot[ j ] ] );
-  }
+  //  for ( size_t j = 0; j < n - 1; ++j ) {
+  //    swap( b[ j ], b[ pivot[ j ] ] );
+  //  }
 
+  // No need to solve Ly = Pb, because b(0:n-2) are all zeros, so y == Pb
+  //
   // Solve Ly = Pb by column-oriented forward substitution
   // See Algorithm 3.1.3 in Golub and Van Loan (utilizing that L is unit lower triangular)
-  for ( size_t j = 0; j < n - 1; ++j ) {
-    for ( size_t k = j + 1; k < n; ++k ) {
-      b[ k ] -= b[ j ] * A[ k ][ j ];
-    }
-  }
+  //
+  //for ( size_t j = 0; j + 1 < n; ++j ) {
+  //  for ( size_t k = j + 1; k < n; ++k ) {
+  //    b[ k ] -= b[ j ] * A[ k ][ j ];
+  //  }
+  //}
 
   // Solve Ux = y by row-oriented back substitution
   // See Algorithm 3.1.2 in Golub and Van Loan
   for ( size_t j = n; j > 0; --j ) {
     size_t i = j - 1;
-    double sum = 0.0;
-    for ( size_t k = j; k < n; ++k ) {
-      sum += A[ i ][ k ] * b[ k ];
+    double sum = inner_product( A[ i ].begin() + j, A[ i ].end(), b.begin() + j, 0.0 );
+    if ( A[ i ][ i ] != 0.0 ) {
+      b[ i ] = ( b[ i ] - sum ) / A[ i ][ i ];
     }
-    if ( A[ i ][ i ] == 0.0 ) {
+    else {
       // Matrix is singular
       if ( b[ i ] == sum ) {
         // U(i,i) * x(i) == 0.0 and U(i,i) == 0.0 => x(i) == 0.0 is a solution
@@ -809,11 +809,8 @@ void overwritingSolveLinearSystemOfEquations_( vector< vector< double > >& A,
       }
       else {
         // U(i,i) * x(i) != 0.0 but U(i,i) == 0.0 => no solution
-        throw invalid_argument( singularMatrix );
+        throw invalid_argument( "Singular matrix 2" );
       }
-    }
-    else {
-      b[ i ] = ( b[ i ] - sum ) / A[ i ][ i ];
     }
   }
   // b now contains the solution x to Ax = b

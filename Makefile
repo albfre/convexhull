@@ -5,7 +5,7 @@ SRCS = $(FILE).cpp $(FILE).h
 OBJS = $(FILE).o
 TEST = Test$(FILE)
 TESTSRC = $(TEST).cpp
-PROFILECFLAGS = -pg -O2 -Wall -pedantic
+PROFILECFLAGS = -pg -Wall -pedantic
 
 all: $(SRCS) \
 ; $(CC) $(CFLAGS) -c $(SRCS)

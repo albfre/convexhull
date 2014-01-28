@@ -18,7 +18,8 @@ class Test {
     Test( const string& test ) :
       pass_( true ),
       testEnded_( false ),
-      testString_( test )
+      testString_( test ),
+      start_( clock() )
     {
       string equal;
       for ( size_t i = 0; i < textLength_; ++i ) {
@@ -103,7 +104,17 @@ class Test {
           spaces += " ";
         }
 
+        stringstream ss;
+        ss << "CPU seconds to run test: " << ( clock() - start_ ) / CLOCKS_PER_SEC;
+        string time = ss.str();
+        string spacesTime;
+
+        while ( 2 * spacesTime.length() + time.length() < textLength_ ) {
+          spacesTime += " ";
+        }
+
         cout << spaces << output << endl;
+        cout << spacesTime << time << endl;
         cout << equal << endl << endl << endl;
       }
       cout << endl;
@@ -115,6 +126,7 @@ class Test {
     bool pass_;
     bool testEnded_;
     const string& testString_;
+    const double start_;
     static const size_t textLength_ = 70;
 };
 
@@ -201,16 +213,25 @@ size_t testSpeedRandom_( size_t numOfPoints, size_t dimension )
   srand( 123 );
   vector< vector< double > > points;
   points.reserve( numOfPoints );
+  ofstream file( "points.txt" );
+  file << dimension << endl << numOfPoints << endl;
+  stringstream ss;
   for ( size_t i = 0; i < numOfPoints; ++i ) {
     vector< double > point( dimension );
     for ( size_t j = 0; j < dimension; ++j ) {
       point[ j ] = double( rand() ) / RAND_MAX;
+      ss << point[ j ] << " ";
     }
+    ss << endl;
     points.push_back( point );
   }
-  cerr << "start" << endl;
+  file << ss;
+  file.close();
+  double start = clock();
   vector< vector< size_t > > facets = computeConvexHull( points, 1e-9 );
-  cerr << facets.size() << endl;
+  double stop = clock();
+  cout << "Number of facets: " << facets.size() << endl;
+  cout << "CPU seconds to compute hull (after input): " << ( stop - start ) / CLOCKS_PER_SEC << endl;
   return facets.size();
 }
 
@@ -219,6 +240,9 @@ size_t testSpeedUniform_()
   vector< vector< double > > points;
   size_t side = 150;
   points.reserve( side * side );
+  ofstream file( "points.txt" );
+  file << 3 << endl << side * side << endl;
+  stringstream ss;
   for ( size_t i = 0; i < side; ++i ) {
     for ( size_t j = 0; j < side; ++j ) {
       vector< double > point( 3 );
@@ -226,11 +250,16 @@ size_t testSpeedUniform_()
       point[ 1 ] = double( j ) - side / 2;
       point[ 2 ] = point[ 0 ] * point[ 0 ] + point[ 1 ] * point[ 1 ];
       points.push_back( point );
+      ss << point[ 0 ] << " " << point[ 1 ] << " " << point[ 2 ] << endl;
     }
   }
-  cerr << "start" << endl;
-  vector< vector< size_t > > facets = computeConvexHull( points, 1e-8 );
-  cerr << facets.size() << endl;
+  file << ss;
+  file.close();
+  double start = clock();
+  vector< vector< size_t > > facets = computeConvexHull( points, 1e-9 );
+  double stop = clock();
+  cout << "Number of facets: " << facets.size() << endl;
+  cout << "CPU seconds to compute hull (after input): " << ( stop - start ) / CLOCKS_PER_SEC << endl;
   return facets.size();
 }
 
@@ -249,8 +278,6 @@ bool testConvexHullMultiple_()
     }
   }
   t.verify( false, exceptionCaught, "No exception" );
-
-
 
   return t.endTest();
 }
