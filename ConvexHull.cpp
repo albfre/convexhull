@@ -12,6 +12,14 @@
 /* HEADER */
 #include "ConvexHull.h"
 
+// For profiling
+#if 0
+#define INLINE_ATTRIBUTE __attribute__ ((noinline))
+#else
+#define INLINE_ATTRIBUTE
+#endif
+
+
 using namespace std;
 
 namespace ConvexHull {
@@ -19,7 +27,7 @@ namespace ConvexHull {
 Facet::Facet( const vector< size_t >& _vertexIndices ) :
   vertexIndices( _vertexIndices ),
   visible( false ),
-  visitId( (size_t)-1 ),
+  visitIndex( (size_t)-1 ),
   isNewFacet( true ),
   farthestOutsidePointDistance( 0.0 )
 {
@@ -31,31 +39,31 @@ typedef list< Facet >::const_iterator FacetConstIt;
 
 /* Anonymous namespace function declarations */
 namespace {
-  vector< vector< size_t > > computeConvexHull_( const vector< vector< double > >& unperturbedPoints, double perturbation, size_t depth );
-  vector< size_t > getInitialPolytopeVertexIndices_( const vector< vector< double > >& points );
-  void getInitialSimplex_( const vector< vector< double > >& points, list< Facet >& facets );
-  vector< vector< double > > perturbPoints_( const vector< vector< double > >& points, double perturbation );
-  void updateFacetCenterPoints_( const vector< vector< double > >& points, list< Facet >& facets );
-  vector< double > computeOrigin_( const list< Facet >& facets );
-  void updateFacetNormalAndOffset_( const vector< vector< double > >& points, const vector< double >& origin, Facet& facet, vector< vector< double > >& preallocatedA );
-  void initializeOutsideSets_( const vector< vector< double > >& points, list< Facet >& facets );
-  size_t getAndEraseFarthestPointFromOutsideSet_( const vector< vector< double > >& points, Facet& facet );
-  void getVisibleFacets_( const vector< double >& apex, FacetIt facetIt, vector< FacetIt >& visibleFacets, vector< pair< FacetIt, FacetIt > >& horizon );
-  size_t getHashValue_( const vector< size_t >& v );
-  void createNewFacets_( size_t apexIndex, const vector< pair< FacetIt, FacetIt > >& horizon, list< Facet >& facets, vector< FacetIt >& visibleFacets, vector< FacetIt >& newFacets, vector< vector< size_t > >& preallocatedPeaks );
-  void updateOutsideSets_( const vector< vector< double > >& points, const vector< size_t >& unassignedPointIndices, vector< FacetIt >& newFacets );
-  vector< size_t > getOutsidePointIndicesFromFacets_( const vector< FacetIt >& facets, size_t startIndex );
-  bool isFacetVisibleFromPoint_( const Facet& facet, const vector< double >& point );
-  double distance_( const Facet& facet, const vector< double >& point );
-  double scalarProduct_( const vector< double >& a, const vector< double >& b );
-  void overwritingSolveLinearSystemOfEquations_( vector< vector< double > >& A, vector< double >& b );
+  vector< vector< size_t > > INLINE_ATTRIBUTE computeConvexHull_( const vector< vector< double > >& unperturbedPoints, double perturbation, size_t depth );
+  vector< size_t > INLINE_ATTRIBUTE getInitialPolytopeVertexIndices_( const vector< vector< double > >& points );
+  void INLINE_ATTRIBUTE getInitialSimplex_( const vector< vector< double > >& points, list< Facet >& facets );
+  vector< vector< double > > INLINE_ATTRIBUTE perturbPoints_( const vector< vector< double > >& points, double perturbation );
+  void INLINE_ATTRIBUTE updateFacetCenterPoints_( const vector< vector< double > >& points, list< Facet >& facets );
+  vector< double > INLINE_ATTRIBUTE computeOrigin_( const list< Facet >& facets );
+  void INLINE_ATTRIBUTE updateFacetNormalAndOffset_( const vector< vector< double > >& points, const vector< double >& origin, Facet& facet, vector< vector< double > >& preallocatedA );
+  void INLINE_ATTRIBUTE initializeOutsideSets_( const vector< vector< double > >& points, list< Facet >& facets );
+  size_t INLINE_ATTRIBUTE getAndEraseFarthestPointFromOutsideSet_( const vector< vector< double > >& points, Facet& facet );
+  void INLINE_ATTRIBUTE getVisibleFacets_( const vector< double >& apex, FacetIt facetIt, vector< FacetIt >& visibleFacets, vector< pair< FacetIt, FacetIt > >& horizon );
+  size_t INLINE_ATTRIBUTE getHashValue_( const vector< size_t >& v );
+  void INLINE_ATTRIBUTE createNewFacets_( size_t apexIndex, const vector< pair< FacetIt, FacetIt > >& horizon, list< Facet >& facets, vector< FacetIt >& visibleFacets, vector< FacetIt >& newFacets, vector< vector< size_t > >& preallocatedPeaks );
+  void INLINE_ATTRIBUTE updateOutsideSets_( const vector< vector< double > >& points, const vector< size_t >& unassignedPointIndices, vector< FacetIt >& newFacets );
+  vector< size_t > INLINE_ATTRIBUTE getOutsidePointIndicesFromFacets_( const vector< FacetIt >& facets, size_t startIndex );
+  bool INLINE_ATTRIBUTE isFacetVisibleFromPoint_( const Facet& facet, const vector< double >& point );
+  double INLINE_ATTRIBUTE distance_( const Facet& facet, const vector< double >& point );
+  double INLINE_ATTRIBUTE scalarProduct_( const vector< double >& a, const vector< double >& b );
+  void INLINE_ATTRIBUTE overwritingSolveLinearSystemOfEquations_( vector< vector< double > >& A, vector< double >& b );
 
-  void throwExceptionIfNotConvexPolytope_( const list< Facet >& facets );
-  void throwExceptionIfNotAllFacetsFullDimensional_( const list< Facet >& facets, size_t dimension );
-  void throwExceptionIfFacetsUseNonExistingVertices_( const list< Facet >& facets, const vector< vector< double > >& points );
-  void throwExceptionIfNotAllPointsHaveCorrectDimension_( const vector< vector< double > >& points, size_t dimension );
-  void throwExceptionIfTooFewPoints_( const vector< vector< double > >& points );
-  void throwExceptionIfInvalidPerturbation_( double perturbation, const vector< vector< double > >& points );
+  void INLINE_ATTRIBUTE throwExceptionIfNotConvexPolytope_( const list< Facet >& facets );
+  void INLINE_ATTRIBUTE throwExceptionIfNotAllFacetsFullDimensional_( const list< Facet >& facets, size_t dimension );
+  void INLINE_ATTRIBUTE throwExceptionIfFacetsUseNonExistingVertices_( const list< Facet >& facets, const vector< vector< double > >& points );
+  void INLINE_ATTRIBUTE throwExceptionIfNotAllPointsHaveCorrectDimension_( const vector< vector< double > >& points, size_t dimension );
+  void INLINE_ATTRIBUTE throwExceptionIfTooFewPoints_( const vector< vector< double > >& points );
+  void INLINE_ATTRIBUTE throwExceptionIfInvalidPerturbation_( double perturbation, const vector< vector< double > >& points );
 
   struct FirstComparator {
     template< class T, class U >
@@ -173,7 +181,7 @@ void growConvexHull( const vector< vector< double > >& points,
     newFacetsWithOutsidePoints.reserve( newFacets.size() );
     for ( size_t ni = 0; ni < newFacets.size(); ++ni ) {
       newFacets[ ni ]->isNewFacet = false;
-      newFacets[ ni ]->visitId = (size_t)-1;
+      newFacets[ ni ]->visitIndex = (size_t)-1;
       if ( newFacets[ ni ]->outsideIndices.size() > 0 ) {
         newFacetsWithOutsidePoints.push_back( newFacets[ ni ] );
       }
@@ -487,7 +495,7 @@ void getVisibleFacets_( const vector< double >& apex,
                         vector< pair< FacetIt, FacetIt > >& horizon )
 {
   facetIt->visible = true;
-  facetIt->visitId = 1;
+  facetIt->visitIndex = 0;
   size_t startIndex = visibleFacets.size();
   visibleFacets.push_back( facetIt );
   for ( size_t vi = startIndex; vi < visibleFacets.size(); ++vi ) {
@@ -497,7 +505,7 @@ void getVisibleFacets_( const vector< double >& apex,
       FacetIt neighborIt = visibleFacet.neighbors[ ni ];
       Facet& neighbor = *neighborIt;
 
-      if ( neighbor.visitId != 1 ) {
+      if ( neighbor.visitIndex != 0 ) {
         if ( isFacetVisibleFromPoint_( neighbor, apex ) ) {
           visibleFacets.push_back( neighborIt );
           neighbor.visible = true;
@@ -507,7 +515,7 @@ void getVisibleFacets_( const vector< double >& apex,
       if ( !neighbor.visible ) {
         horizon.push_back( make_pair( visibleFacetIt, neighborIt ) );
       }
-      neighbor.visitId = 1;
+      neighbor.visitIndex = 0;
     }
   }
 }
@@ -580,7 +588,7 @@ void createNewFacets_( size_t apexIndex,
     vector< FacetIt >::iterator fItIt = find( obscuredFacetIt->neighbors.begin(), obscuredFacetIt->neighbors.end(), visibleFacetIt );
     assert( fItIt != obscuredFacetIt->neighbors.end() );
     *fItIt = newFacetIt;
-    obscuredFacetIt->visitId = (size_t)-1;
+    obscuredFacetIt->visitIndex = (size_t)-1;
     newFacetIt->neighbors.push_back( obscuredFacetIt );
     newFacets.push_back( newFacetIt );
   }
@@ -664,16 +672,16 @@ void updateOutsideSets_( const vector< vector< double > >& points,
       if ( bestDistance > 0.0 ) {
         // Found a facet for which the point is an outside point
         // Recursively check whether its neighbors are even farther
-        newFacetIt->visitId = fi;
+        newFacetIt->visitIndex = fi;
         bool checkNeighbors = true;
         while ( checkNeighbors ) {
           checkNeighbors = false;
           for ( size_t ni = 0; ni < newFacetIt->neighbors.size(); ++ni ) {
             FacetIt neighborIt = newFacetIt->neighbors[ ni ];
-            if ( !neighborIt->isNewFacet || neighborIt->visitId == fi ) {
+            if ( !neighborIt->isNewFacet || neighborIt->visitIndex == fi ) {
               continue;
             }
-            neighborIt->visitId = fi;
+            neighborIt->visitIndex = fi;
             double distance = distance_( *neighborIt, point );
             if ( distance > bestDistance ) {
               bestDistance = distance;
@@ -761,7 +769,7 @@ void overwritingSolveLinearSystemOfEquations_( vector< vector< double > >& A,
     assert( A[ i ].size() == n );
   }
   assert( b.size() == n );
-  vector< size_t > pivot( n - 1 );
+  //vector< size_t > pivot( n - 1 );
 
   // Outer product LU with partial pivoting
   // See Algorithm 3.4.1 in Golub and Van Loan - Matrix Computations, 4th Edition
@@ -781,8 +789,10 @@ void overwritingSolveLinearSystemOfEquations_( vector< vector< double > >& A,
       throw invalid_argument( "Singular matrix 1" );
     }
 
+    //if ( k + 1 < n ) {
+    //  pivot[ k ] = mu;
+    //}
     if ( k != mu ) {
-      pivot[ k ] = mu;
       A[ k ].swap( A[ mu ] );
     }
 

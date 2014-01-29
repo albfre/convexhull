@@ -1,3 +1,6 @@
+#ifndef CONVEX_HULL_H
+#define CONVEX_HULL_H
+
 #include <cstddef>
 #include <list>
 #include <vector>
@@ -29,8 +32,9 @@ namespace ConvexHull {
       bool visible;
 
       // indicates whether the facet has been visited in the search for visible facets or in the assignment of outside points
-      size_t visitId;
+      size_t visitIndex;
 
+      // indicates whether the facet was just created
       bool isNewFacet;
 
       // the index of the outside point that is farthest from the facet
@@ -47,3 +51,5 @@ namespace ConvexHull {
   void growConvexHull( const std::vector< std::vector< double > >& points,
                        std::list< Facet >& facets );
 }
+
+#endif

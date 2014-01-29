@@ -7,14 +7,18 @@ TEST = Test$(FILE)
 TESTSRC = $(TEST).cpp
 PROFILECFLAGS = -pg -O2 -Wall -pedantic
 
-all: $(SRCS) \
-; $(CC) $(CFLAGS) -c $(SRCS)
+all: product test
 
-profile: $(SRCS) \
-; $(CC) $(PROFILECFLAGS) -c $(SRCS)
+product: $(SRCS) \
+; $(CC) $(CFLAGS) -c $(SRCS)
 
 test: $(TESTSRC) \
 ; $(CC) $(CFLAGS) -o $(TEST) $(TESTSRC) $(OBJS)
+
+profile: productprofile testprofile
+
+productprofile: $(SRCS) \
+; $(CC) $(PROFILECFLAGS) -c $(SRCS)
 
 testprofile: $(TESTSRC) \
 ; $(CC) $(PROFILECFLAGS) -o $(TEST) $(TESTSRC) $(OBJS)
