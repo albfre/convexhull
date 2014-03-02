@@ -8,7 +8,6 @@
 #include <stdexcept>
 #include <set>
 
-
 /* HEADER */
 #include "ConvexHull.h"
 
@@ -45,7 +44,8 @@ namespace {
   vector< vector< double > > INLINE_ATTRIBUTE perturbPoints_( const vector< vector< double > >& points, double perturbation );
   void INLINE_ATTRIBUTE updateFacetCenterPoints_( const vector< vector< double > >& points, list< Facet >& facets );
   vector< double > INLINE_ATTRIBUTE computeOrigin_( const list< Facet >& facets );
-  void INLINE_ATTRIBUTE updateFacetNormalAndOffset_( const vector< vector< double > >& points, const vector< double >& origin, Facet& facet, vector< vector< double > >& preallocatedA );
+  template< template< class T, class All = std::allocator< T > > class Container, class U >
+  void INLINE_ATTRIBUTE updateFacetNormalAndOffset_( const vector< vector< double > >& points, const vector< double >& origin, Container< U >& facets, vector< vector< double > >& preallocatedA );
   void INLINE_ATTRIBUTE initializeOutsideSets_( const vector< vector< double > >& points, list< Facet >& facets );
   size_t INLINE_ATTRIBUTE getAndEraseFarthestPointFromOutsideSet_( const vector< vector< double > >& points, Facet& facet );
   void INLINE_ATTRIBUTE getVisibleFacets_( const vector< double >& apex, FacetIt facetIt, vector< FacetIt >& visibleFacets, vector< pair< FacetIt, FacetIt > >& horizon );
@@ -87,11 +87,26 @@ namespace {
   };
 
   struct IsVisiblePredicate { bool operator() ( const FacetIt& f ) const { return f->visible; } };
+
+  template< class T > struct FacetExtractor;
+
+  template<>
+  struct FacetExtractor< FacetIt > {
+    static Facet& getFacet( vector< FacetIt >::iterator fItIt ) { return *( *fItIt ); }
+  };
+
+  template<>
+  struct FacetExtractor< Facet > {
+    static Facet& getFacet( FacetIt fIt ) { return *fIt; }
+  };
 }
 
 vector< vector< size_t > > computeConvexHull( const vector< vector< double > >& unperturbedPoints,
                                               double perturbation )
 {
+  // Always use the same seed to ensure deterministic behavior
+  srand( 4711 );
+
   // Check that the input data is correct
   throwExceptionIfTooFewPoints_( unperturbedPoints );
   const size_t dimension = unperturbedPoints.front().size();
@@ -110,6 +125,11 @@ void growConvexHull( const vector< vector< double > >& points,
   throwExceptionIfNotAllFacetsFullDimensional_( facets, dimension );
   throwExceptionIfFacetsUseNonExistingVertices_( facets, points );
 
+  // The vertex indices are assumed to be sorted when new facets are created
+  for ( FacetIt fIt = facets.begin(); fIt != facets.end(); ++fIt ) {
+    sort( fIt->vertexIndices.begin(), fIt->vertexIndices.end() );
+  }
+
   // Update the facet center points to the mean of the vertex points
   updateFacetCenterPoints_( points, facets );
 
@@ -118,18 +138,11 @@ void growConvexHull( const vector< vector< double > >& points,
 
   // Compute inwards-oriented facet normals
   vector< vector< double > > preallocatedA;
-  for ( FacetIt fIt = facets.begin(); fIt != facets.end(); ++fIt ) {
-    updateFacetNormalAndOffset_( points, origin, *fIt, preallocatedA );
-  }
+  updateFacetNormalAndOffset_( points, origin, facets, preallocatedA );
   throwExceptionIfNotConvexPolytope_( facets );
 
-  // Compute outside sets
+  // Assign each outer point to a facet
   initializeOutsideSets_( points, facets );
-
-  // Sort vertex indices
-  for ( FacetIt fIt = facets.begin(); fIt != facets.end(); ++fIt ) {
-    sort( fIt->vertexIndices.begin(), fIt->vertexIndices.end() );
-  }
 
   // Create a list of all facets that have outside points
   vector< FacetIt > facetsWithOutsidePoints;
@@ -169,11 +182,9 @@ void growConvexHull( const vector< vector< double > >& points,
     createNewFacets_( apexIndex, horizon, facets, visibleFacets, newFacets, preallocatedPeaks );
 
     // Update the facet normals and offsets
-    for ( size_t ni = 0; ni < newFacets.size(); ++ni ) {
-      updateFacetNormalAndOffset_( points, origin, *newFacets[ ni ], preallocatedA );
-    }
+    updateFacetNormalAndOffset_( points, origin, newFacets, preallocatedA );
 
-    // Assign the points belonging to visible facets to the newly create facets
+    // Assign the points belonging to visible facets to the newly created facets
     updateOutsideSets_( points, unassignedPointIndices, newFacets );
 
     // Add the new facets with outside points to the vector of all facets with outside points
@@ -245,7 +256,7 @@ vector< vector< size_t > > computeConvexHull_( const vector< vector< double > >&
     double newPerturbation = perturbation == 0.0 ? 1e-9 : 100 * perturbation;
     throwExceptionIfInvalidPerturbation_( newPerturbation, unperturbedPoints );
     if ( depth > 2 ) {
-      throw invalid_argument( "No solution was found althogh perturbation was increased 3 times." );
+      throw invalid_argument( "No solution was found although perturbation was increased 3 times." );
     }
     return computeConvexHull_( unperturbedPoints, newPerturbation, depth + 1 );
   }
@@ -267,7 +278,7 @@ vector< vector< size_t > > computeConvexHull_( const vector< vector< double > >&
     double newPerturbation = perturbation == 0.0 ? 1e-9 : 100 * perturbation;
     throwExceptionIfInvalidPerturbation_( newPerturbation, unperturbedPoints );
     if ( depth > 2 ) {
-      throw invalid_argument( "No solution was found althogh perturbation was increased 3 times." );
+      throw invalid_argument( "No solution was found although perturbation was increased 3 times." );
     }
     return computeConvexHull_( unperturbedPoints, newPerturbation, depth + 1 );
   }
@@ -289,10 +300,8 @@ vector< size_t > getInitialPolytopeVertexIndices_( const vector< vector< double 
   const size_t dimension = points.size() == 0 ? 0 : points.front().size();
   set< size_t > startPointIndexSet;
   for ( size_t d = 0; d < dimension; ++d ) {
-    vector< vector< double > >::const_iterator pItMin = min_element( points.begin(), points.end(), DimensionComparator( d ) );
-    vector< vector< double > >::const_iterator pItMax = max_element( points.begin(), points.end(), DimensionComparator( d ) );
-    startPointIndexSet.insert( pItMin - points.begin() );
-    startPointIndexSet.insert( pItMax - points.begin() );
+    startPointIndexSet.insert( min_element( points.begin(), points.end(), DimensionComparator( d ) ) - points.begin() );
+    startPointIndexSet.insert( max_element( points.begin(), points.end(), DimensionComparator( d ) ) - points.begin() );
   }
   vector< size_t > startPointIndices;
   startPointIndices.reserve( dimension + 1 );
@@ -348,8 +357,6 @@ vector< vector< double > > perturbPoints_( const vector< vector< double > >& poi
   const size_t dimension = points.front().size();
   throwExceptionIfNotAllPointsHaveCorrectDimension_( points, dimension );
 
-  // always use the same seed to ensure deterministic behavior
-  srand( 4711 );
   vector< vector< double > > perturbedPoints( points.size(), vector< double >( dimension, 0.0 ) );
   for ( size_t pi = 0; pi < points.size(); ++pi ) {
     for ( size_t d = 0; d < dimension; ++d ) {
@@ -395,56 +402,56 @@ vector< double > computeOrigin_( const list< Facet >& facets )
   return origin;
 }
 
+template< template< class T, class All = std::allocator< T > > class Container, class U >
 void updateFacetNormalAndOffset_( const vector< vector< double > >& points,
                                   const vector< double >& origin,
-                                  Facet& facet,
+                                  Container< U >& facets,
                                   vector< vector< double > >& preallocatedA )
 {
   assert( points.size() > 0 );
   const size_t dimension = points.front().size();
-  assert( facet.vertexIndices.size() == dimension );
+
   vector< vector< double > >& A = preallocatedA;
   A.resize( dimension );
-  const vector< double >& firstPoint = points[ facet.vertexIndices.front() ];
   for ( size_t i = 0; i + 1 < dimension; ++i ) {
     A[ i ].resize( dimension );
-    for ( size_t j = 0; j < dimension; ++j ) {
-      A[ i ][ j ] = points[ facet.vertexIndices[ i + 1 ] ][ j ] - firstPoint[ j ];
+  }
+
+  for ( typename Container< U >::iterator fIt = facets.begin(); fIt != facets.end(); ++fIt ) {
+    Facet& facet = FacetExtractor< U >::getFacet( fIt );
+    assert( facet.vertexIndices.size() == dimension );
+    const vector< double >& firstPoint = points[ facet.vertexIndices.front() ];
+
+    for ( size_t i = 0; i + 1 < dimension; ++i ) {
+      for ( size_t j = 0; j < dimension; ++j ) {
+        A[ i ][ j ] = points[ facet.vertexIndices[ i + 1 ] ][ j ] - firstPoint[ j ];
+      }
     }
-  }
-  vector< double > b( dimension, 0.0 );
-  b.back() = 1.0;
-  A.back() = b;
-  /*
-  for ( size_t i = 0; i < dimension; ++i ) {
-    A[ i ].resize( dimension );
-    for ( size_t j = 0; j < dimension; ++j ) {
-      A[ i ][ j ] = points[ facet.vertexIndices[ i ] ][ j ] - origin[ j ];
+    vector< double > b( dimension, 0.0 );
+    b.back() = 1.0;
+    A.back() = b;
+
+    // Solve A x = b
+    overwritingSolveLinearSystemOfEquations_( A, b );
+    double absSum = 0.0;
+    for ( size_t i = 0; i < b.size(); ++i ) {
+      absSum += fabs( b[ i ] );
     }
-  }
-  vector< double > b( dimension, 1.0 );
-  */
 
-  // Solve A x = b
-  overwritingSolveLinearSystemOfEquations_( A, b );
-  double absSum = 0.0;
-  for ( size_t i = 0; i < b.size(); ++i ) {
-    absSum += fabs( b[ i ] );
-  }
-
-  for ( size_t i = 0; i < b.size(); ++i ) {
-    b[ i ] /= absSum;
-  }
-
-  facet.normal.swap( b );
-  facet.offset = scalarProduct_( facet.normal, points[ facet.vertexIndices.front() ] );
-
-  // Orient normal inwards
-  if ( isFacetVisibleFromPoint_( facet, origin ) ) {
-    for ( vector< double >::iterator nIt = facet.normal.begin(); nIt != facet.normal.end(); ++nIt ) {
-      *nIt = -( *nIt );
+    for ( size_t i = 0; i < b.size(); ++i ) {
+      b[ i ] /= absSum;
     }
-    facet.offset = -facet.offset;
+
+    facet.normal.swap( b );
+    facet.offset = scalarProduct_( facet.normal, points[ facet.vertexIndices.front() ] );
+
+    // Orient normal inwards
+    if ( isFacetVisibleFromPoint_( facet, origin ) ) {
+      for ( vector< double >::iterator nIt = facet.normal.begin(); nIt != facet.normal.end(); ++nIt ) {
+        *nIt = -( *nIt );
+      }
+      facet.offset = -facet.offset;
+    }
   }
 }
 
@@ -523,7 +530,7 @@ void getVisibleFacets_( const vector< double >& apex,
 size_t getHashValue_( const vector< size_t >& v )
 {
 
-  double hash = 0;
+  size_t hash = 0;
   for ( size_t i = 0; i < v.size(); ++i ) {
     size_t i2 = ( i + 1 ) * ( i + 1 );
     size_t i4 = i2 * i2;
@@ -703,7 +710,6 @@ void updateOutsideSets_( const vector< vector< double > >& points,
   }
 }
 
-
 vector< size_t > getOutsidePointIndicesFromFacets_( const vector< FacetIt >& facets, size_t startIndex )
 {
   size_t numOfUnassignedPoints = 0;
@@ -765,11 +771,10 @@ void overwritingSolveLinearSystemOfEquations_( vector< vector< double > >& A,
 {
   const size_t n = A.size();
   assert( n > 0 );
-  for ( size_t i = 0; i < A.size(); ++i ) {
+  for ( size_t i = 0; i < n; ++i ) {
     assert( A[ i ].size() == n );
   }
   assert( b.size() == n );
-  //vector< size_t > pivot( n - 1 );
 
   // Outer product LU with partial pivoting
   // See Algorithm 3.4.1 in Golub and Van Loan - Matrix Computations, 4th Edition
@@ -788,29 +793,11 @@ void overwritingSolveLinearSystemOfEquations_( vector< vector< double > >& A,
       // Matrix is singular
       throw invalid_argument( "Singular matrix 1" );
     }
-
-    //if ( k + 1 < n ) {
-    //  pivot[ k ] = mu;
-    //}
     if ( k != mu ) {
       A[ k ].swap( A[ mu ] );
     }
-
-    // rho = k + 1:n - 1
-    // A(rho,k) = A(rho,k) / A(k,k)
-    /*
-    double factor = 1.0 / A[ k ][ k ];
-    for ( size_t i = k + 1; i < n; ++i ) {
-      A[ i ][ k ] *= factor;
-    }
-
-    // A(rho,rho) = A(rho,rho) - A(rho,k) * A(k,rho)
-    for ( size_t i = k + 1; i < n; ++i ) {
-      for ( size_t j = k + 1; j < n; ++j ) {
-        A[ i ][ j ] -= A[ i ][ k ] * A[ k ][ j ];
-      }
-    }
-    */
+    // Here, it is utilized that L is not needed
+    // (if L is needed, first divide A[ i ][ k ] by A[ k ][ k ], then subtract A[ i ][ k ] * A[ k ][ j ] from A[ i ][ j ])
     for ( size_t i = k + 1; i < n; ++i ) {
       double factor = A[ i ][ k ] / A[ k ][ k ];
       for ( size_t j = k + 1; j < n; ++j ) {
@@ -819,24 +806,7 @@ void overwritingSolveLinearSystemOfEquations_( vector< vector< double > >& A,
     }
   }
   // LU factorization completed
-
-  // No need to replace b by Pb, because b = [0,...,0,1]^T and P only permutes the n - 1 first rows, so Pb == b
-  //
-  // Replace b by Pb
-  //  for ( size_t j = 0; j < n - 1; ++j ) {
-  //    swap( b[ j ], b[ pivot[ j ] ] );
-  //  }
-
-  // No need to solve Ly = Pb, because b(0:n-2) are all zeros, so y == Pb
-  //
-  // Solve Ly = Pb by column-oriented forward substitution
-  // See Algorithm 3.1.3 in Golub and Van Loan (utilizing that L is unit lower triangular)
-  //
-  // for ( size_t j = 0; j + 1 < n; ++j ) {
-  //   for ( size_t k = j + 1; k < n; ++k ) {
-  //     b[ k ] -= b[ j ] * A[ k ][ j ];
-  //   }
-  // }
+  // No need to solve Ly = Pb, because b = [0,...,0,1]^T, so y == Pb
 
   // Solve Ux = y by row-oriented back substitution
   // See Algorithm 3.1.2 in Golub and Van Loan
