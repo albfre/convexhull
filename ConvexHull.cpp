@@ -18,7 +18,6 @@
 #define INLINE_ATTRIBUTE
 #endif
 
-
 using namespace std;
 
 namespace ConvexHull {
@@ -65,6 +64,9 @@ namespace {
   void INLINE_ATTRIBUTE throwExceptionIfTooFewPoints_( const vector< vector< double > >& points );
   void INLINE_ATTRIBUTE throwExceptionIfInvalidPerturbation_( double perturbation, const vector< vector< double > >& points );
 
+  Facet& getFacet_( FacetIt fIt ) { return *fIt; }
+  Facet& getFacet_( vector< FacetIt >::iterator fItIt ) { return *( *fItIt ); }
+
   struct FirstComparator {
     template< class T, class U >
     bool operator() ( const pair< T, U >& p1,
@@ -87,31 +89,18 @@ namespace {
   };
 
   struct IsVisiblePredicate { bool operator() ( const FacetIt& f ) const { return f->visible; } };
-
-  template< class T > struct FacetExtractor;
-
-  template<>
-  struct FacetExtractor< FacetIt > {
-    static Facet& getFacet( vector< FacetIt >::iterator fItIt ) { return *( *fItIt ); }
-  };
-
-  template<>
-  struct FacetExtractor< Facet > {
-    static Facet& getFacet( FacetIt fIt ) { return *fIt; }
-  };
 }
 
 vector< vector< size_t > > computeConvexHull( const vector< vector< double > >& unperturbedPoints,
                                               double perturbation )
 {
-  // Always use the same seed to ensure deterministic behavior
-  srand( 4711 );
-
   // Check that the input data is correct
   throwExceptionIfTooFewPoints_( unperturbedPoints );
   const size_t dimension = unperturbedPoints.front().size();
   throwExceptionIfNotAllPointsHaveCorrectDimension_( unperturbedPoints, dimension );
 
+  // Always use the same seed to ensure deterministic behavior
+  srand( 4711 );
   return computeConvexHull_( unperturbedPoints, perturbation, 0 );
 }
 
@@ -246,41 +235,31 @@ vector< vector< size_t > > computeConvexHull_( const vector< vector< double > >&
   list< Facet > facets;
   getInitialSimplex_( initialPoints, facets );
 
-  try {
-    // Compute the convex hull for the set of all points using the seed polytope
-    growConvexHull( initialPoints, facets );
-  }
-  catch ( invalid_argument e ) {
-    // Failed to grow the convex hull. Change perturbation and retry
-    cerr << "1 " << e.what() << endl;
-    double newPerturbation = perturbation == 0.0 ? 1e-9 : 100 * perturbation;
-    throwExceptionIfInvalidPerturbation_( newPerturbation, unperturbedPoints );
-    if ( depth > 2 ) {
-      throw invalid_argument( "No solution was found although perturbation was increased 3 times." );
+  for ( size_t growIndex = 0; growIndex < 2; ++growIndex ) {
+    const vector< vector< double > >& growPoints = growIndex == 0 ? initialPoints : points;
+    try {
+      // Compute the convex hull for the set of all points using the seed polytope
+      growConvexHull( growPoints, facets );
     }
-    return computeConvexHull_( unperturbedPoints, newPerturbation, depth + 1 );
-  }
+    catch ( invalid_argument e ) {
+      // Failed to grow the convex hull. Change perturbation and retry
+      cerr << growIndex << e.what() << endl;
+      double newPerturbation = perturbation == 0.0 ? 1e-9 : 100 * perturbation;
+      throwExceptionIfInvalidPerturbation_( newPerturbation, unperturbedPoints );
+      if ( depth > 2 ) {
+        throw invalid_argument( "No solution was found although perturbation was increased 3 times." );
+      }
+      return computeConvexHull_( unperturbedPoints, newPerturbation, depth + 1 );
+    }
 
-  // Set the extreme point indices to the indices in the full set of points
-  for ( FacetIt fIt = facets.begin(); fIt != facets.end(); ++fIt ) {
-    for ( size_t i = 0; i < fIt->vertexIndices.size(); ++i ) {
-      fIt->vertexIndices[ i ] = initialPointIndices[ fIt->vertexIndices[ i ] ];
+    if ( growIndex == 0 ) {
+      // Set the extreme point indices to the indices in the full set of points
+      for ( FacetIt fIt = facets.begin(); fIt != facets.end(); ++fIt ) {
+        for ( size_t i = 0; i < fIt->vertexIndices.size(); ++i ) {
+          fIt->vertexIndices[ i ] = initialPointIndices[ fIt->vertexIndices[ i ] ];
+        }
+      }
     }
-  }
-
-  try {
-    // Compute the convex hull for the set of all points using the seed polytope
-    growConvexHull( points, facets );
-  }
-  catch ( invalid_argument e ) {
-    // Failed to grow the convex hull. Change perturbation and retry
-    cerr << "2 " << e.what() << endl;
-    double newPerturbation = perturbation == 0.0 ? 1e-9 : 100 * perturbation;
-    throwExceptionIfInvalidPerturbation_( newPerturbation, unperturbedPoints );
-    if ( depth > 2 ) {
-      throw invalid_argument( "No solution was found although perturbation was increased 3 times." );
-    }
-    return computeConvexHull_( unperturbedPoints, newPerturbation, depth + 1 );
   }
 
   // Assert that the facets' sets of vertices have the correct dimension
@@ -372,7 +351,11 @@ void updateFacetCenterPoints_( const vector< vector< double > >& points,
   assert( points.size() > 0 );
   const size_t dimension = points.front().size();
   for ( FacetIt fIt = facets.begin(); fIt != facets.end(); ++fIt ) {
-    vector< double > center( dimension, 0.0 );
+    vector< double >& center = fIt->center;
+    if ( center.size() == dimension ) {
+      continue;
+    }
+    center.assign( dimension, 0.0 );
     for ( vector< size_t >::const_iterator vIt = fIt->vertexIndices.begin(); vIt != fIt->vertexIndices.end(); ++vIt ) {
       const vector< double >& point = points[ *vIt ];
       for ( size_t d = 0; d < dimension; ++d ) {
@@ -382,7 +365,6 @@ void updateFacetCenterPoints_( const vector< vector< double > >& points,
     for ( size_t d = 0; d < dimension; ++d ) {
       center[ d ] /= fIt->vertexIndices.size();
     }
-    fIt->center = center;
   }
 }
 
@@ -413,12 +395,13 @@ void updateFacetNormalAndOffset_( const vector< vector< double > >& points,
 
   vector< vector< double > >& A = preallocatedA;
   A.resize( dimension );
-  for ( size_t i = 0; i + 1 < dimension; ++i ) {
+  for ( size_t i = 0; i < dimension; ++i ) {
     A[ i ].resize( dimension );
   }
+  vector< double > b( dimension, 0.0 );
 
   for ( typename Container< U >::iterator fIt = facets.begin(); fIt != facets.end(); ++fIt ) {
-    Facet& facet = FacetExtractor< U >::getFacet( fIt );
+    Facet& facet = getFacet_( fIt );
     assert( facet.vertexIndices.size() == dimension );
     const vector< double >& firstPoint = points[ facet.vertexIndices.front() ];
 
@@ -427,7 +410,7 @@ void updateFacetNormalAndOffset_( const vector< vector< double > >& points,
         A[ i ][ j ] = points[ facet.vertexIndices[ i + 1 ] ][ j ] - firstPoint[ j ];
       }
     }
-    vector< double > b( dimension, 0.0 );
+    b.assign( dimension, 0.0 );
     b.back() = 1.0;
     A.back() = b;
 
