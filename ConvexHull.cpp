@@ -89,6 +89,14 @@ namespace {
   };
 
   struct IsVisiblePredicate { bool operator() ( const FacetIt& f ) const { return f->visible; } };
+
+  template< int N, unsigned int P > struct Power {
+     static const size_t value = N * Power< N, P - 1 >::value;
+  };
+
+  template< int N > struct Power< N, 0 > {
+     static const size_t value = 1;
+  };
 }
 
 vector< vector< size_t > > computeConvexHull( const vector< vector< double > >& unperturbedPoints,
@@ -243,7 +251,7 @@ vector< vector< size_t > > computeConvexHull_( const vector< vector< double > >&
     }
     catch ( invalid_argument e ) {
       // Failed to grow the convex hull. Change perturbation and retry
-      cerr << growIndex << e.what() << endl;
+      cerr << growIndex << " " << e.what() << endl;
       double newPerturbation = perturbation == 0.0 ? 1e-9 : 100 * perturbation;
       throwExceptionIfInvalidPerturbation_( newPerturbation, unperturbedPoints );
       if ( depth > 2 ) {
@@ -512,15 +520,38 @@ void getVisibleFacets_( const vector< double >& apex,
 
 size_t getHashValue_( const vector< size_t >& v )
 {
-
-  size_t hash = 0;
-  for ( size_t i = 0; i < v.size(); ++i ) {
-    size_t i2 = ( i + 1 ) * ( i + 1 );
-    size_t i4 = i2 * i2;
-    size_t i8 = i4 * i4;
-    hash += v[ v.size() - i - 1 ] * i8 * i4;
+  size_t sum = 0;
+  vector< size_t >::const_iterator vIt = v.begin();
+  switch ( v.size() ) {
+    case 20: sum += *( vIt++ ) * Power< 20, 12 >::value;
+    case 19: sum += *( vIt++ ) * Power< 19, 12 >::value;
+    case 18: sum += *( vIt++ ) * Power< 18, 12 >::value;
+    case 17: sum += *( vIt++ ) * Power< 17, 12 >::value;
+    case 16: sum += *( vIt++ ) * Power< 16, 12 >::value;
+    case 15: sum += *( vIt++ ) * Power< 15, 12 >::value;
+    case 14: sum += *( vIt++ ) * Power< 14, 12 >::value;
+    case 13: sum += *( vIt++ ) * Power< 13, 12 >::value;
+    case 12: sum += *( vIt++ ) * Power< 12, 12 >::value;
+    case 11: sum += *( vIt++ ) * Power< 11, 12 >::value;
+    case 10: sum += *( vIt++ ) * Power< 10, 12 >::value;
+    case 9:  sum += *( vIt++ ) * Power< 9, 12 >::value;
+    case 8:  sum += *( vIt++ ) * Power< 8, 12 >::value;
+    case 7:  sum += *( vIt++ ) * Power< 7, 12 >::value;
+    case 6:  sum += *( vIt++ ) * Power< 6, 12 >::value;
+    case 5:  sum += *( vIt++ ) * Power< 5, 12 >::value;
+    case 4:  sum += *( vIt++ ) * Power< 4, 12 >::value;
+    case 3:  sum += *( vIt++ ) * Power< 3, 12 >::value;
+    case 2:  sum += *( vIt++ ) * Power< 2, 12 >::value;
+    case 1:  sum += *( vIt++ );
+    default:
+      for ( size_t i = 20; i < v.size(); ++i ) {
+        size_t i2 = ( i + 1 ) * ( i + 1 );
+        size_t i4 = i2 * i2;
+        size_t i8 = i4 * i4;
+        sum += v[ v.size() - i - 1 ] * i8 * i4;
+      }
   }
-  return hash;
+  return sum;
 }
 
 void createNewFacets_( size_t apexIndex,
@@ -727,12 +758,9 @@ double scalarProduct_( const vector< double >& a,
   // The scalar product is called a large number of times.
   // The following assert has therefore been removed for speed:
   // assert( a.size() == b.size() );
-  //
-  // Computing the dot product with the following unrolling gave a speedup of about 15 %
-  // for a 3d case with 1e4 randomly distributed points compared to the default method
   double sum = 0.0;
 
-  switch (a.size()) {
+  switch ( a.size() ) {
     default:
       for ( size_t i = 20; i < a.size(); ++i ) {
         sum += a[ i ] * b[ i ];
