@@ -730,23 +730,37 @@ double scalarProduct_( const vector< double >& a,
   //
   // Computing the dot product with the following unrolling gave a speedup of about 15 %
   // for a 3d case with 1e4 randomly distributed points compared to the default method
-  switch ( a.size() ) {
-    case 2: return a[ 0 ] * b[ 0 ] + a[ 1 ] * b[ 1 ];
-    case 3: return a[ 0 ] * b[ 0 ] + a[ 1 ] * b[ 1 ] + a[ 2 ] * b[ 2 ];
-    case 4: return a[ 0 ] * b[ 0 ] + a[ 1 ] * b[ 1 ] + a[ 2 ] * b[ 2 ] + a[ 3 ] * b[ 3 ];
-    case 5: return a[ 0 ] * b[ 0 ] + a[ 1 ] * b[ 1 ] + a[ 2 ] * b[ 2 ] + a[ 3 ] * b[ 3 ] + a[ 4 ] * b[ 4 ];
-    case 6: return a[ 0 ] * b[ 0 ] + a[ 1 ] * b[ 1 ] + a[ 2 ] * b[ 2 ] + a[ 3 ] * b[ 3 ] + a[ 4 ] * b[ 4 ] + a[ 5 ] * b[ 5 ];
-    case 7: return a[ 0 ] * b[ 0 ] + a[ 1 ] * b[ 1 ] + a[ 2 ] * b[ 2 ] + a[ 3 ] * b[ 3 ] + a[ 4 ] * b[ 4 ] + a[ 5 ] * b[ 5 ] + a[ 6 ] * b[ 6 ];
-    case 8: return a[ 0 ] * b[ 0 ] + a[ 1 ] * b[ 1 ] + a[ 2 ] * b[ 2 ] + a[ 3 ] * b[ 3 ] + a[ 4 ] * b[ 4 ] + a[ 5 ] * b[ 5 ] + a[ 6 ] * b[ 6 ] + a[ 7 ] * b[ 7 ];
+  double sum = 0.0;
+
+  switch (a.size()) {
     default:
-    {
-      double sum = 0.0;
-      for ( size_t i = 0; i < a.size(); ++i ) {
+      for ( size_t i = 20; i < a.size(); ++i ) {
         sum += a[ i ] * b[ i ];
       }
-      return sum;
-    }
+    case 20: sum += a[ 19 ] * b[ 19 ];
+    case 19: sum += a[ 18 ] * b[ 18 ];
+    case 18: sum += a[ 17 ] * b[ 17 ];
+    case 17: sum += a[ 16 ] * b[ 16 ];
+    case 16: sum += a[ 15 ] * b[ 15 ];
+    case 15: sum += a[ 14 ] * b[ 14 ];
+    case 14: sum += a[ 13 ] * b[ 13 ];
+    case 13: sum += a[ 12 ] * b[ 12 ];
+    case 12: sum += a[ 11 ] * b[ 11 ];
+    case 11: sum += a[ 10 ] * b[ 10 ];
+    case 10: sum += a[ 9 ] * b[ 9 ];
+    case 9:  sum += a[ 8 ] * b[ 8 ];
+    case 8:  sum += a[ 7 ] * b[ 7 ];
+    case 7:  sum += a[ 6 ] * b[ 6 ];
+    case 6:  sum += a[ 5 ] * b[ 5 ];
+    case 5:  sum += a[ 4 ] * b[ 4 ];
+    case 4:  sum += a[ 3 ] * b[ 3 ];
+    case 3:  sum += a[ 2 ] * b[ 2 ];
+    case 2:  sum += a[ 1 ] * b[ 1 ];
+    case 1:  sum += a[ 0 ] * b[ 0 ];
+    case 0: ;
   }
+
+  return sum;
 }
 
 void overwritingSolveLinearSystemOfEquations_( vector< vector< double > >& A,
