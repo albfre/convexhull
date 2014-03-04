@@ -37,6 +37,8 @@ typedef list< Facet >::const_iterator FacetConstIt;
 
 /* Anonymous namespace function declarations */
 namespace {
+  int distanceTests;
+  int hyperPlanes;
   vector< vector< size_t > > INLINE_ATTRIBUTE computeConvexHull_( const vector< vector< double > >& unperturbedPoints, double perturbation, size_t depth );
   vector< size_t > INLINE_ATTRIBUTE getInitialPolytopeVertexIndices_( const vector< vector< double > >& points );
   void INLINE_ATTRIBUTE getInitialSimplex_( const vector< vector< double > >& points, list< Facet >& facets );
@@ -91,17 +93,19 @@ namespace {
   struct IsVisiblePredicate { bool operator() ( const FacetIt& f ) const { return f->visible; } };
 
   template< int N, unsigned int P > struct Power {
-     static const size_t value = N * Power< N, P - 1 >::value;
+    static const size_t value = N * Power< N, P - 1 >::value;
   };
 
   template< int N > struct Power< N, 0 > {
-     static const size_t value = 1;
+    static const size_t value = 1;
   };
 }
 
 vector< vector< size_t > > computeConvexHull( const vector< vector< double > >& unperturbedPoints,
                                               double perturbation )
 {
+  distanceTests = 0;
+  hyperPlanes = 0;
   // Check that the input data is correct
   throwExceptionIfTooFewPoints_( unperturbedPoints );
   const size_t dimension = unperturbedPoints.front().size();
@@ -279,6 +283,8 @@ vector< vector< size_t > > computeConvexHull_( const vector< vector< double > >&
   for ( FacetIt fIt = facets.begin(); fIt != facets.end(); ++fIt, ++fi ) {
     vertexIndices[ fi ].swap( fIt->vertexIndices );
   }
+  cerr << "num distancetests " << distanceTests << endl;
+  cerr << "num hyperplanes " << hyperPlanes << endl;
   return vertexIndices;
 }
 
@@ -435,6 +441,7 @@ void updateFacetNormalAndOffset_( const vector< vector< double > >& points,
 
     facet.normal.swap( b );
     facet.offset = scalarProduct_( facet.normal, points[ facet.vertexIndices.front() ] );
+    hyperPlanes++;
 
     // Orient normal inwards
     if ( isFacetVisibleFromPoint_( facet, origin ) ) {
@@ -755,16 +762,10 @@ double distance_( const Facet& facet,
 double scalarProduct_( const vector< double >& a,
                        const vector< double >& b )
 {
-  // The scalar product is called a large number of times.
-  // The following assert has therefore been removed for speed:
-  // assert( a.size() == b.size() );
+  distanceTests++;
+  assert( a.size() == b.size() );
   double sum = 0.0;
-
   switch ( a.size() ) {
-    default:
-      for ( size_t i = 20; i < a.size(); ++i ) {
-        sum += a[ i ] * b[ i ];
-      }
     case 20: sum += a[ 19 ] * b[ 19 ];
     case 19: sum += a[ 18 ] * b[ 18 ];
     case 18: sum += a[ 17 ] * b[ 17 ];
@@ -785,9 +786,11 @@ double scalarProduct_( const vector< double >& a,
     case 3:  sum += a[ 2 ] * b[ 2 ];
     case 2:  sum += a[ 1 ] * b[ 1 ];
     case 1:  sum += a[ 0 ] * b[ 0 ];
-    case 0: ;
+    default:
+      for ( size_t i = 20; i < a.size(); ++i ) {
+        sum += a[ i ] * b[ i ];
+      }
   }
-
   return sum;
 }
 
@@ -815,7 +818,6 @@ void overwritingSolveLinearSystemOfEquations_( vector< vector< double > >& A,
       }
     }
     if ( maxValue == 0.0 ) {
-      // Matrix is singular
       throw invalid_argument( "Singular matrix 1" );
     }
     if ( k != mu ) {
@@ -823,10 +825,36 @@ void overwritingSolveLinearSystemOfEquations_( vector< vector< double > >& A,
     }
     // Here, it is utilized that L is not needed
     // (if L is needed, first divide A[ i ][ k ] by A[ k ][ k ], then subtract A[ i ][ k ] * A[ k ][ j ] from A[ i ][ j ])
+    double invDiag = 1.0 / A[ k ][ k ];
     for ( size_t i = k + 1; i < n; ++i ) {
-      double factor = A[ i ][ k ] / A[ k ][ k ];
-      for ( size_t j = k + 1; j < n; ++j ) {
-        A[ i ][ j ] -= factor * A[ k ][ j ];
+      double factor = A[ i ][ k ] * invDiag;
+      vector< double >::iterator iIt = A[ i ].begin() + k + 1;
+      vector< double >::iterator kIt = A[ k ].begin() + k + 1;
+      switch ( n - k - 1 ) {
+        case 20: *iIt++ -= factor * *kIt++;
+        case 19: *iIt++ -= factor * *kIt++;
+        case 18: *iIt++ -= factor * *kIt++;
+        case 17: *iIt++ -= factor * *kIt++;
+        case 16: *iIt++ -= factor * *kIt++;
+        case 15: *iIt++ -= factor * *kIt++;
+        case 14: *iIt++ -= factor * *kIt++;
+        case 13: *iIt++ -= factor * *kIt++;
+        case 12: *iIt++ -= factor * *kIt++;
+        case 11: *iIt++ -= factor * *kIt++;
+        case 10: *iIt++ -= factor * *kIt++;
+        case 9:  *iIt++ -= factor * *kIt++;
+        case 8:  *iIt++ -= factor * *kIt++;
+        case 7:  *iIt++ -= factor * *kIt++;
+        case 6:  *iIt++ -= factor * *kIt++;
+        case 5:  *iIt++ -= factor * *kIt++;
+        case 4:  *iIt++ -= factor * *kIt++;
+        case 3:  *iIt++ -= factor * *kIt++;
+        case 2:  *iIt++ -= factor * *kIt++;
+        case 1:  *iIt++ -= factor * *kIt++;
+        default:
+          for ( ; iIt != A[ i ].end(); ++iIt, ++kIt ) {
+            *iIt -= factor * *kIt;
+          }
       }
     }
   }
