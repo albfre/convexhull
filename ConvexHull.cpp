@@ -364,6 +364,7 @@ void updateFacetCenterPoints_( const vector< vector< double > >& points,
 {
   assert( points.size() > 0 );
   const size_t dimension = points.front().size();
+  const double oneOverDimension = 1.0 / dimension;
   for ( FacetIt fIt = facets.begin(); fIt != facets.end(); ++fIt ) {
     vector< double >& center = fIt->center;
     if ( center.size() == dimension ) {
@@ -377,7 +378,7 @@ void updateFacetCenterPoints_( const vector< vector< double > >& points,
       }
     }
     for ( size_t d = 0; d < dimension; ++d ) {
-      center[ d ] /= fIt->vertexIndices.size();
+      center[ d ] *= oneOverDimension;
     }
   }
 }
@@ -434,9 +435,10 @@ void updateFacetNormalAndOffset_( const vector< vector< double > >& points,
     for ( size_t i = 0; i < b.size(); ++i ) {
       absSum += fabs( b[ i ] );
     }
+    absSum = 1.0 / absSum;
 
     for ( size_t i = 0; i < b.size(); ++i ) {
-      b[ i ] /= absSum;
+      b[ i ] *= absSum;
     }
 
     facet.normal.swap( b );
@@ -530,11 +532,6 @@ size_t getHashValue_( const vector< size_t >& v )
   size_t sum = 0;
   vector< size_t >::const_iterator vIt = v.begin();
   switch ( v.size() ) {
-    case 20: sum += *( vIt++ ) * Power< 20, 12 >::value;
-    case 19: sum += *( vIt++ ) * Power< 19, 12 >::value;
-    case 18: sum += *( vIt++ ) * Power< 18, 12 >::value;
-    case 17: sum += *( vIt++ ) * Power< 17, 12 >::value;
-    case 16: sum += *( vIt++ ) * Power< 16, 12 >::value;
     case 15: sum += *( vIt++ ) * Power< 15, 12 >::value;
     case 14: sum += *( vIt++ ) * Power< 14, 12 >::value;
     case 13: sum += *( vIt++ ) * Power< 13, 12 >::value;
@@ -551,7 +548,7 @@ size_t getHashValue_( const vector< size_t >& v )
     case 2:  sum += *( vIt++ ) * Power< 2, 12 >::value;
     case 1:  sum += *( vIt++ );
     default:
-      for ( size_t i = 20; i < v.size(); ++i ) {
+      for ( size_t i = 15; i < v.size(); ++i ) {
         size_t i2 = ( i + 1 ) * ( i + 1 );
         size_t i4 = i2 * i2;
         size_t i8 = i4 * i4;
@@ -762,34 +759,12 @@ double distance_( const Facet& facet,
 double scalarProduct_( const vector< double >& a,
                        const vector< double >& b )
 {
+
   distanceTests++;
   assert( a.size() == b.size() );
   double sum = 0.0;
-  switch ( a.size() ) {
-    case 20: sum += a[ 19 ] * b[ 19 ];
-    case 19: sum += a[ 18 ] * b[ 18 ];
-    case 18: sum += a[ 17 ] * b[ 17 ];
-    case 17: sum += a[ 16 ] * b[ 16 ];
-    case 16: sum += a[ 15 ] * b[ 15 ];
-    case 15: sum += a[ 14 ] * b[ 14 ];
-    case 14: sum += a[ 13 ] * b[ 13 ];
-    case 13: sum += a[ 12 ] * b[ 12 ];
-    case 12: sum += a[ 11 ] * b[ 11 ];
-    case 11: sum += a[ 10 ] * b[ 10 ];
-    case 10: sum += a[ 9 ] * b[ 9 ];
-    case 9:  sum += a[ 8 ] * b[ 8 ];
-    case 8:  sum += a[ 7 ] * b[ 7 ];
-    case 7:  sum += a[ 6 ] * b[ 6 ];
-    case 6:  sum += a[ 5 ] * b[ 5 ];
-    case 5:  sum += a[ 4 ] * b[ 4 ];
-    case 4:  sum += a[ 3 ] * b[ 3 ];
-    case 3:  sum += a[ 2 ] * b[ 2 ];
-    case 2:  sum += a[ 1 ] * b[ 1 ];
-    case 1:  sum += a[ 0 ] * b[ 0 ];
-    default:
-      for ( size_t i = 20; i < a.size(); ++i ) {
-        sum += a[ i ] * b[ i ];
-      }
+  for ( size_t i = 0; i < a.size(); ++i ) {
+    sum += a[ i ] * b[ i ];
   }
   return sum;
 }
@@ -828,14 +803,13 @@ void overwritingSolveLinearSystemOfEquations_( vector< vector< double > >& A,
     double invDiag = 1.0 / A[ k ][ k ];
     for ( size_t i = k + 1; i < n; ++i ) {
       double factor = A[ i ][ k ] * invDiag;
+      // The loop unrolling below is equivalent to this:
+      // for ( size_t j = k + 1; j < n; ++j ) {
+      //   A[ i ][ j ] -= factor * A[ k ][ j ];
+      // }
       vector< double >::iterator iIt = A[ i ].begin() + k + 1;
       vector< double >::iterator kIt = A[ k ].begin() + k + 1;
       switch ( n - k - 1 ) {
-        case 20: *iIt++ -= factor * *kIt++;
-        case 19: *iIt++ -= factor * *kIt++;
-        case 18: *iIt++ -= factor * *kIt++;
-        case 17: *iIt++ -= factor * *kIt++;
-        case 16: *iIt++ -= factor * *kIt++;
         case 15: *iIt++ -= factor * *kIt++;
         case 14: *iIt++ -= factor * *kIt++;
         case 13: *iIt++ -= factor * *kIt++;
