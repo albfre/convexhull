@@ -5,7 +5,7 @@ SRCS = $(FILE).cpp $(FILE).h
 OBJS = $(FILE).o
 TEST = Test$(FILE)
 TESTSRC = $(TEST).cpp
-PROFILECFLAGS = -pg -O2 -Wall -pedantic
+PROFILECFLAGS = -pg -funroll-loops -O2 -Wall -pedantic
 
 all: product test
 

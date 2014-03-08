@@ -208,13 +208,11 @@ bool testConvexHull3D_()
   return t.endTest();
 }
 
-size_t testSpeedRandom_( size_t numOfPoints, size_t dimension )
+size_t testSpeedRandom_( size_t numOfPoints, size_t dimension, bool print = false )
 {
   srand( 123 );
   vector< vector< double > > points;
   points.reserve( numOfPoints );
-  ofstream file( "points.txt" );
-  file << dimension << endl << numOfPoints << endl;
   stringstream ss;
   for ( size_t i = 0; i < numOfPoints; ++i ) {
     vector< double > point( dimension );
@@ -225,13 +223,18 @@ size_t testSpeedRandom_( size_t numOfPoints, size_t dimension )
     ss << endl;
     points.push_back( point );
   }
-  file << ss.str();
-  file.close();
+  if ( print ) {
+    ofstream file( "points.txt" );
+    file << dimension << endl << numOfPoints << endl;
+    file << ss.str();
+    file.close();
+  }
+  cout << "Convex hull of " << points.size() << " points in " << dimension << "D." << endl << endl;
   double start = clock();
   vector< vector< size_t > > facets = computeConvexHull( points );
   double stop = clock();
   cout << "Number of facets: " << facets.size() << endl;
-  cout << "CPU seconds to compute hull (after input): " << ( stop - start ) / CLOCKS_PER_SEC << endl;
+  cout << "CPU seconds to compute hull (after input): " << ( stop - start ) / CLOCKS_PER_SEC << endl << endl;
   return facets.size();
 }
 
@@ -239,9 +242,8 @@ size_t testSpeedUniform_()
 {
   vector< vector< double > > points;
   size_t side = 150;
+  size_t dimension = 3;
   points.reserve( side * side );
-  ofstream file( "points.txt" );
-  file << 3 << endl << side * side << endl;
   stringstream ss;
   for ( size_t i = 0; i < side; ++i ) {
     for ( size_t j = 0; j < side; ++j ) {
@@ -253,23 +255,26 @@ size_t testSpeedUniform_()
       ss << point[ 0 ] << " " << point[ 1 ] << " " << point[ 2 ] << endl;
     }
   }
+  ofstream file( "points.txt" );
+  file << dimension << endl << side * side << endl;
   file << ss.str();
   file.close();
+  cout << "Convex hull of " << points.size() << " points in " << dimension << "D." << endl << endl;
   double start = clock();
   vector< vector< size_t > > facets = computeConvexHull( points, 1e-8 );
   double stop = clock();
   cout << "Number of facets: " << facets.size() << endl;
-  cout << "CPU seconds to compute hull (after input): " << ( stop - start ) / CLOCKS_PER_SEC << endl;
+  cout << "CPU seconds to compute hull (after input): " << ( stop - start ) / CLOCKS_PER_SEC << endl << endl;
   return facets.size();
 }
 
 bool testConvexHullMultiple_()
 {
-  Test t( "Computing 1D-10D convex hull." );
-  size_t expected[ 10 ] = { 2, 11, 38, 149, 534, 1585, 5596, 15353, 41822, 101718 };
+  Test t( "Computing 1D-11D convex hull." );
+  size_t expected[ 11 ] = { 2, 11, 38, 149, 534, 1585, 5596, 15353, 41822, 101718, 276556 };
 
   bool exceptionCaught = false;
-  for ( size_t i = 0; i < 10; ++i ) {
+  for ( size_t i = 0; i < 11; ++i ) {
     try {
       t.verify( expected[ i ], testSpeedRandom_( 50, i + 1 ), "Number of facets is correct" );
     }
@@ -290,7 +295,7 @@ int main( int argc, const char* argv[] )
     Test t( "Convex hull suite" );
     t.verify( testConvexHull2D_(), "Test 2D" );
     t.verify( testConvexHull3D_(), "Test 3D" );
-    t.verify( testConvexHullMultiple_(), "Test 1D-10D" );
+    t.verify( testConvexHullMultiple_(), "Test 1D-11D" );
     t.endTest( true );
   }
   else {
@@ -307,7 +312,8 @@ int main( int argc, const char* argv[] )
         assert( dim > 0 );
         dimension = size_t( dim );
       }
-      testSpeedRandom_( numOfPoints, dimension );
+      bool print = true;
+      testSpeedRandom_( numOfPoints, dimension, print );
     }
     else if ( atoi( argv[ 1 ] ) == 1 ) {
       testSpeedUniform_();

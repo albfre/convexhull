@@ -39,6 +39,7 @@ typedef list< Facet >::const_iterator FacetConstIt;
 namespace {
   int distanceTests;
   int hyperPlanes;
+  int dist1, dist2, dist3, dist4;
   vector< vector< size_t > > INLINE_ATTRIBUTE computeConvexHull_( const vector< vector< double > >& unperturbedPoints, double perturbation, size_t depth );
   vector< size_t > INLINE_ATTRIBUTE getInitialPolytopeVertexIndices_( const vector< vector< double > >& points );
   void INLINE_ATTRIBUTE getInitialSimplex_( const vector< vector< double > >& points, list< Facet >& facets );
@@ -50,10 +51,9 @@ namespace {
   void INLINE_ATTRIBUTE initializeOutsideSets_( const vector< vector< double > >& points, list< Facet >& facets );
   size_t INLINE_ATTRIBUTE getAndEraseFarthestPointFromOutsideSet_( const vector< vector< double > >& points, Facet& facet );
   void INLINE_ATTRIBUTE getVisibleFacets_( const vector< double >& apex, FacetIt facetIt, vector< FacetIt >& visibleFacets, vector< pair< FacetIt, FacetIt > >& horizon );
-  size_t INLINE_ATTRIBUTE getHashValue_( const vector< size_t >& v );
   void INLINE_ATTRIBUTE createNewFacets_( size_t apexIndex, const vector< pair< FacetIt, FacetIt > >& horizon, list< Facet >& facets, vector< FacetIt >& visibleFacets, vector< FacetIt >& newFacets, vector< vector< size_t > >& preallocatedPeaks );
-  void INLINE_ATTRIBUTE updateOutsideSets_( const vector< vector< double > >& points, const vector< size_t >& unassignedPointIndices, vector< FacetIt >& newFacets );
-  vector< size_t > INLINE_ATTRIBUTE getOutsidePointIndicesFromFacets_( const vector< FacetIt >& facets, size_t startIndex );
+  void INLINE_ATTRIBUTE updateOutsideSets_( const vector< vector< double > >& points, const vector< vector< size_t > >& unassignedPointIndices, vector< FacetIt >& newFacets );
+  vector< vector< size_t > > INLINE_ATTRIBUTE getOutsidePointIndicesFromFacets_( const vector< FacetIt >& facets, size_t startIndex );
   bool INLINE_ATTRIBUTE isFacetVisibleFromPoint_( const Facet& facet, const vector< double >& point );
   double INLINE_ATTRIBUTE distance_( const Facet& facet, const vector< double >& point );
   double INLINE_ATTRIBUTE scalarProduct_( const vector< double >& a, const vector< double >& b );
@@ -104,6 +104,7 @@ namespace {
 vector< vector< size_t > > computeConvexHull( const vector< vector< double > >& unperturbedPoints,
                                               double perturbation )
 {
+  dist1 = dist2 = dist3 = dist4 = 0;
   distanceTests = 0;
   hyperPlanes = 0;
   // Check that the input data is correct
@@ -176,7 +177,7 @@ void growConvexHull( const vector< vector< double > >& points,
     getVisibleFacets_( apex, facetIt, visibleFacets, horizon );
 
     // Get the outside points from the visible facets
-    const vector< size_t >& unassignedPointIndices = getOutsidePointIndicesFromFacets_( visibleFacets, newVisibleFacetsStartIndex );
+    const vector< vector< size_t > >& unassignedPointIndices = getOutsidePointIndicesFromFacets_( visibleFacets, newVisibleFacetsStartIndex );
 
     // Create new facets from the apex
     vector< FacetIt > newFacets;
@@ -283,8 +284,9 @@ vector< vector< size_t > > computeConvexHull_( const vector< vector< double > >&
   for ( FacetIt fIt = facets.begin(); fIt != facets.end(); ++fIt, ++fi ) {
     vertexIndices[ fi ].swap( fIt->vertexIndices );
   }
-  cerr << "num distancetests " << distanceTests << endl;
-  cerr << "num hyperplanes " << hyperPlanes << endl;
+  cerr << "Number of distance tests: " << distanceTests << endl;
+  cerr << "1: " << dist1 <<  ", 2: " << dist2 << ", 3: " << dist3 << endl;
+  cerr << "Number of hyperplanes created: " << hyperPlanes << endl;
   return vertexIndices;
 }
 
@@ -468,6 +470,7 @@ void initializeOutsideSets_( const vector< vector< double > >& points,
       FacetIt farthestFacetIt;
       double maxDistance = 0.0;
       for ( FacetIt fIt = facets.begin(); fIt != facets.end(); ++fIt ) {
+        ++dist1;
         double distance = distance_( *fIt, point );
         if ( distance > maxDistance ) {
           maxDistance = distance;
@@ -683,62 +686,82 @@ void createNewFacets_( size_t apexIndex,
   }
 }
 
+void assignPointToFarthestFacet_( Facet* facet,
+                                  double bestDistance,
+                                  size_t pointIndex,
+                                  const vector< double >& point,
+                                  Facet*& facetOfPreviousPoint,
+                                  size_t visitIndex )
+{
+  // Found a facet for which the point is an outside point
+  // Recursively check whether its neighbors are even farther
+  facet->visitIndex = visitIndex;
+  bool checkNeighbors = true;
+  while ( checkNeighbors ) {
+    checkNeighbors = false;
+    for ( size_t ni = 0; ni < facet->neighbors.size(); ++ni ) {
+      Facet& neighbor = *( facet->neighbors[ ni ] );
+      if ( !neighbor.isNewFacet || neighbor.visitIndex == visitIndex ) {
+        continue;
+      }
+      neighbor.visitIndex = visitIndex;
+      ++dist3;
+      double distance = distance_( neighbor, point );
+      if ( distance > bestDistance ) {
+        bestDistance = distance;
+        facet = &neighbor;
+        checkNeighbors = true;
+        break;
+      }
+    }
+  }
+
+  facetOfPreviousPoint = facet;
+  facet->outsideIndices.push_back( pointIndex );
+  if ( bestDistance > facet->farthestOutsidePointDistance ) {
+    facet->farthestOutsidePointDistance = bestDistance;
+    facet->farthestOutsidePointIndex = pointIndex;
+  }
+}
+
 void updateOutsideSets_( const vector< vector< double > >& points,
-                         const vector< size_t >& outsideIndices,
+                         const vector< vector< size_t > >& visibleFacetOutsideIndices,
                          vector< FacetIt >& newFacets )
 {
   assert( newFacets.size() > 0 );
-  for ( size_t pi = 0; pi < outsideIndices.size(); ++pi ) {
-    const size_t pointIndex = outsideIndices[ pi ];
-    const vector< double >& point = points[ pointIndex ];
-    for ( size_t fi = 0; fi < newFacets.size(); ++fi ) {
-      FacetIt newFacetIt = newFacets[ fi ];
-      double bestDistance = distance_( *newFacetIt, point );
-      if ( bestDistance > 0.0 ) {
-        // Found a facet for which the point is an outside point
-        // Recursively check whether its neighbors are even farther
-        newFacetIt->visitIndex = fi;
-        bool checkNeighbors = true;
-        while ( checkNeighbors ) {
-          checkNeighbors = false;
-          for ( size_t ni = 0; ni < newFacetIt->neighbors.size(); ++ni ) {
-            FacetIt neighborIt = newFacetIt->neighbors[ ni ];
-            if ( !neighborIt->isNewFacet || neighborIt->visitIndex == fi ) {
-              continue;
-            }
-            neighborIt->visitIndex = fi;
-            double distance = distance_( *neighborIt, point );
-            if ( distance > bestDistance ) {
-              bestDistance = distance;
-              newFacetIt = neighborIt;
-              checkNeighbors = true;
-              break;
-            }
-          }
+  for ( size_t vi = 0; vi < visibleFacetOutsideIndices.size(); ++vi ) {
+    Facet* facetOfPreviousPoint = NULL;
+    const vector< size_t >& outsideIndices = visibleFacetOutsideIndices[ vi ];
+    for ( size_t pi = 0; pi < outsideIndices.size(); ++pi ) {
+      const size_t pointIndex = outsideIndices[ pi ];
+      const vector< double >& point = points[ pointIndex ];
+      double bestDistance = 0.0;
+      if ( facetOfPreviousPoint != NULL ) {
+        ++dist2;
+        bestDistance = distance_( *facetOfPreviousPoint, point );
+        if ( bestDistance > 0.0 ) {
+          assignPointToFarthestFacet_( facetOfPreviousPoint, bestDistance, pointIndex, point, facetOfPreviousPoint, 0 );
+          continue;
         }
-
-        newFacetIt->outsideIndices.push_back( pointIndex );
-        if ( bestDistance > newFacetIt->farthestOutsidePointDistance ) {
-          newFacetIt->farthestOutsidePointDistance = bestDistance;
-          newFacetIt->farthestOutsidePointIndex = pointIndex;
+      }
+      for ( size_t fi = 0; fi < newFacets.size(); ++fi ) {
+        Facet& newFacet = *newFacets[ fi ];
+        ++dist2;
+        double bestDistance = distance_( newFacet, point );
+        if ( bestDistance > 0.0 ) {
+          assignPointToFarthestFacet_( &newFacet, bestDistance, pointIndex, point, facetOfPreviousPoint, fi + 1 );
+          break;
         }
-        break;
       }
     }
   }
 }
 
-vector< size_t > getOutsidePointIndicesFromFacets_( const vector< FacetIt >& facets, size_t startIndex )
+vector< vector< size_t > > getOutsidePointIndicesFromFacets_( const vector< FacetIt >& facets, size_t startIndex )
 {
-  size_t numOfUnassignedPoints = 0;
+  vector< vector< size_t > > unassignedPointIndices( facets.size() - startIndex );
   for ( size_t i = startIndex; i < facets.size(); ++i ) {
-    numOfUnassignedPoints += facets[ i ]->outsideIndices.size();
-  }
-  vector< size_t > unassignedPointIndices;
-  unassignedPointIndices.reserve( numOfUnassignedPoints );
-  for ( size_t i = startIndex; i < facets.size(); ++i ) {
-    const vector< size_t >& outsideIndices = facets[ i ]->outsideIndices;
-    unassignedPointIndices.insert( unassignedPointIndices.end(), outsideIndices.begin(), outsideIndices.end() );
+    unassignedPointIndices[ i - startIndex ].swap( facets[ i ]->outsideIndices );
   }
   return unassignedPointIndices;
 }
@@ -763,8 +786,26 @@ double scalarProduct_( const vector< double >& a,
   distanceTests++;
   assert( a.size() == b.size() );
   double sum = 0.0;
-  for ( size_t i = 0; i < a.size(); ++i ) {
-    sum += a[ i ] * b[ i ];
+  switch ( a.size() ) {
+    case 15: sum += a[ 14 ] * b[ 14 ];
+    case 14: sum += a[ 13 ] * b[ 13 ];
+    case 13: sum += a[ 12 ] * b[ 12 ];
+    case 12: sum += a[ 11 ] * b[ 11 ];
+    case 11: sum += a[ 10 ] * b[ 10 ];
+    case 10: sum += a[ 9 ] * b[ 9 ];
+    case 9:  sum += a[ 8 ] * b[ 8 ];
+    case 8:  sum += a[ 7 ] * b[ 7 ];
+    case 7:  sum += a[ 6 ] * b[ 6 ];
+    case 6:  sum += a[ 5 ] * b[ 5 ];
+    case 5:  sum += a[ 4 ] * b[ 4 ];
+    case 4:  sum += a[ 3 ] * b[ 3 ];
+    case 3:  sum += a[ 2 ] * b[ 2 ];
+    case 2:  sum += a[ 1 ] * b[ 1 ];
+    case 1:  sum += a[ 0 ] * b[ 0 ];
+    default:
+      for ( size_t i = 15; i < a.size(); ++i ) {
+        sum += a[ i ] * b[ i ];
+      }
   }
   return sum;
 }
