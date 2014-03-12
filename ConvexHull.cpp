@@ -24,10 +24,10 @@ namespace ConvexHull {
 
 Facet::Facet( const vector< size_t >& _vertexIndices ) :
   vertexIndices( _vertexIndices ),
-  visible( false ),
   visitIndex( (size_t)-1 ),
-  isNewFacet( true ),
-  farthestOutsidePointDistance( 0.0 )
+  farthestOutsidePointDistance( 0.0 ),
+  visible( false ),
+  isNewFacet( true )
 {
   neighbors.reserve( vertexIndices.size() );
 }
@@ -39,10 +39,10 @@ typedef list< Facet >::const_iterator FacetConstIt;
 namespace {
   int distanceTests;
   int hyperPlanes;
-  int dist1, dist2, dist3, dist4;
+  int dist1, dist2, dist3, dist4, dist5, dist6, dist7;
   vector< vector< size_t > > INLINE_ATTRIBUTE computeConvexHull_( const vector< vector< double > >& unperturbedPoints, double perturbation, size_t depth );
-  vector< size_t > INLINE_ATTRIBUTE getInitialPolytopeVertexIndices_( const vector< vector< double > >& points );
-  void INLINE_ATTRIBUTE getInitialSimplex_( const vector< vector< double > >& points, list< Facet >& facets );
+  vector< size_t > INLINE_ATTRIBUTE getInitialPointIndices_( const vector< vector< double > >& points );
+  void INLINE_ATTRIBUTE getInitialSimplex_( const vector< vector< double > >& points, const vector< size_t >& startPointIndices, list< Facet >& facets );
   vector< vector< double > > INLINE_ATTRIBUTE perturbPoints_( const vector< vector< double > >& points, double perturbation );
   void INLINE_ATTRIBUTE updateFacetCenterPoints_( const vector< vector< double > >& points, list< Facet >& facets );
   vector< double > INLINE_ATTRIBUTE computeOrigin_( const list< Facet >& facets );
@@ -50,9 +50,9 @@ namespace {
   void INLINE_ATTRIBUTE updateFacetNormalAndOffset_( const vector< vector< double > >& points, const vector< double >& origin, Container< U >& facets, vector< vector< double > >& preallocatedA );
   void INLINE_ATTRIBUTE initializeOutsideSets_( const vector< vector< double > >& points, list< Facet >& facets );
   size_t INLINE_ATTRIBUTE getAndEraseFarthestPointFromOutsideSet_( const vector< vector< double > >& points, Facet& facet );
-  void INLINE_ATTRIBUTE getVisibleFacets_( const vector< double >& apex, FacetIt facetIt, vector< FacetIt >& visibleFacets, vector< pair< FacetIt, FacetIt > >& horizon );
+  void INLINE_ATTRIBUTE getVisibleFacets_( const vector< double >& apex, FacetIt facetIt, vector< FacetIt >& visibleFacets, vector< pair< FacetIt, FacetIt > >& horizon, vector< size_t >& visibleToHorizon );
   void INLINE_ATTRIBUTE createNewFacets_( size_t apexIndex, const vector< pair< FacetIt, FacetIt > >& horizon, list< Facet >& facets, vector< FacetIt >& visibleFacets, vector< FacetIt >& newFacets, vector< vector< size_t > >& preallocatedPeaks );
-  void INLINE_ATTRIBUTE updateOutsideSets_( const vector< vector< double > >& points, const vector< vector< size_t > >& unassignedPointIndices, vector< FacetIt >& newFacets );
+  void INLINE_ATTRIBUTE updateOutsideSets_( const vector< vector< double > >& points, const vector< vector< size_t > >& unassignedPointIndices, vector< FacetIt >& newFacets, vector< size_t >& visibleToHorizon );
   vector< vector< size_t > > INLINE_ATTRIBUTE getOutsidePointIndicesFromFacets_( const vector< FacetIt >& facets, size_t startIndex );
   bool INLINE_ATTRIBUTE isFacetVisibleFromPoint_( const Facet& facet, const vector< double >& point );
   double INLINE_ATTRIBUTE distance_( const Facet& facet, const vector< double >& point );
@@ -104,7 +104,7 @@ namespace {
 vector< vector< size_t > > computeConvexHull( const vector< vector< double > >& unperturbedPoints,
                                               double perturbation )
 {
-  dist1 = dist2 = dist3 = dist4 = 0;
+  dist1 = dist2 = dist3 = dist4 = dist5 = dist6 = dist7 = 0;
   distanceTests = 0;
   hyperPlanes = 0;
   // Check that the input data is correct
@@ -174,7 +174,8 @@ void growConvexHull( const vector< vector< double > >& points,
     // Find the set of facets that are visible from the point to be added
     vector< pair< FacetIt, FacetIt > > horizon; // visible-invisible neighboring facet pairs
     size_t newVisibleFacetsStartIndex = visibleFacets.size();
-    getVisibleFacets_( apex, facetIt, visibleFacets, horizon );
+    vector< size_t > visibleToHorizon;
+    getVisibleFacets_( apex, facetIt, visibleFacets, horizon, visibleToHorizon );
 
     // Get the outside points from the visible facets
     const vector< vector< size_t > >& unassignedPointIndices = getOutsidePointIndicesFromFacets_( visibleFacets, newVisibleFacetsStartIndex );
@@ -187,7 +188,7 @@ void growConvexHull( const vector< vector< double > >& points,
     updateFacetNormalAndOffset_( points, origin, newFacets, preallocatedA );
 
     // Assign the points belonging to visible facets to the newly created facets
-    updateOutsideSets_( points, unassignedPointIndices, newFacets );
+    updateOutsideSets_( points, unassignedPointIndices, newFacets, visibleToHorizon );
 
     // Add the new facets with outside points to the vector of all facets with outside points
     vector< FacetIt > newFacetsWithOutsidePoints;
@@ -228,51 +229,33 @@ vector< vector< size_t > > computeConvexHull_( const vector< vector< double > >&
   // Check that the input data is correct
   throwExceptionIfInvalidPerturbation_( perturbation, unperturbedPoints );
 
+
   // Perform perturbation of the input points
   const vector< vector< double > >& points = perturbation > 0.0 ? perturbPoints_( unperturbedPoints, perturbation )
                                                                 : unperturbedPoints;
 
   // Get the indices of the extreme points
   const size_t dimension = unperturbedPoints.front().size();
-  const vector< size_t > initialPointIndices = getInitialPolytopeVertexIndices_( points );
-  assert( initialPointIndices.size() >= dimension + 1 );
-
-  // Create a vector of the extreme points
-  vector< vector< double > > initialPoints;
-  initialPoints.reserve( initialPointIndices.size() );
-  for ( size_t i = 0; i < initialPointIndices.size(); ++i ) {
-    initialPoints.push_back( points[ initialPointIndices[ i ] ] );
-  }
+  const vector< size_t >& initialPointIndices = getInitialPointIndices_( points );
+  assert( points.size() > dimension );
 
   // Create simplex using the extreme points
   list< Facet > facets;
-  getInitialSimplex_( initialPoints, facets );
+  getInitialSimplex_( points, initialPointIndices, facets );
 
-  for ( size_t growIndex = 0; growIndex < 2; ++growIndex ) {
-    const vector< vector< double > >& growPoints = growIndex == 0 ? initialPoints : points;
-    try {
-      // Compute the convex hull for the set of all points using the seed polytope
-      growConvexHull( growPoints, facets );
+  try {
+    // Compute the convex hull for the set of all points using the seed polytope
+    growConvexHull( points, facets );
+  }
+  catch ( invalid_argument e ) {
+    // Failed to grow the convex hull. Change perturbation and retry
+    cerr << e.what() << endl;
+    double newPerturbation = perturbation == 0.0 ? 1e-9 : 100 * perturbation;
+    throwExceptionIfInvalidPerturbation_( newPerturbation, unperturbedPoints );
+    if ( depth > 2 ) {
+      throw invalid_argument( "No solution was found although perturbation was increased 3 times." );
     }
-    catch ( invalid_argument e ) {
-      // Failed to grow the convex hull. Change perturbation and retry
-      cerr << growIndex << " " << e.what() << endl;
-      double newPerturbation = perturbation == 0.0 ? 1e-9 : 100 * perturbation;
-      throwExceptionIfInvalidPerturbation_( newPerturbation, unperturbedPoints );
-      if ( depth > 2 ) {
-        throw invalid_argument( "No solution was found although perturbation was increased 3 times." );
-      }
-      return computeConvexHull_( unperturbedPoints, newPerturbation, depth + 1 );
-    }
-
-    if ( growIndex == 0 ) {
-      // Set the extreme point indices to the indices in the full set of points
-      for ( FacetIt fIt = facets.begin(); fIt != facets.end(); ++fIt ) {
-        for ( size_t i = 0; i < fIt->vertexIndices.size(); ++i ) {
-          fIt->vertexIndices[ i ] = initialPointIndices[ fIt->vertexIndices[ i ] ];
-        }
-      }
-    }
+    return computeConvexHull_( unperturbedPoints, newPerturbation, depth + 1 );
   }
 
   // Assert that the facets' sets of vertices have the correct dimension
@@ -285,12 +268,13 @@ vector< vector< size_t > > computeConvexHull_( const vector< vector< double > >&
     vertexIndices[ fi ].swap( fIt->vertexIndices );
   }
   cerr << "Number of distance tests: " << distanceTests << endl;
-  cerr << "1: " << dist1 <<  ", 2: " << dist2 << ", 3: " << dist3 << endl;
+  cerr << "distance 1: " << dist1 <<  ", 2: " << dist2 << ", 3: " << dist3 << endl;
+  cerr << "isFacetVisibleFromPoint 4: " << dist4 << ", 5: " << dist5 << ", 6: " << dist6 << endl;
   cerr << "Number of hyperplanes created: " << hyperPlanes << endl;
   return vertexIndices;
 }
 
-vector< size_t > getInitialPolytopeVertexIndices_( const vector< vector< double > >& points )
+vector< size_t > getInitialPointIndices_( const vector< vector< double > >& points )
 {
   const size_t dimension = points.size() == 0 ? 0 : points.front().size();
   set< size_t > startPointIndexSet;
@@ -311,7 +295,9 @@ vector< size_t > getInitialPolytopeVertexIndices_( const vector< vector< double 
   return startPointIndices;
 }
 
-void getInitialSimplex_( const vector< vector< double > >& points, list< Facet >& facets )
+void getInitialSimplex_( const vector< vector< double > >& points,
+                         const vector< size_t >& startPointIndices,
+                         list< Facet >& facets )
 {
   facets.clear();
   const size_t dimension = points.size() == 0 ? 0 : points.front().size();
@@ -319,18 +305,46 @@ void getInitialSimplex_( const vector< vector< double > >& points, list< Facet >
     throw invalid_argument( "Too few input points to construct convex hull." );
   }
 
+  // Compute pairwise distances between the extreme points
+  vector< pair< double, pair< size_t, size_t > > > distances;
+  for ( size_t i = 0; i < startPointIndices.size(); ++i ) {
+    size_t si = startPointIndices[ i ];
+    const vector< double >& pointI = points[ si ];
+    for ( size_t j = i + 1; j < startPointIndices.size(); ++j ) {
+      size_t sj = startPointIndices[ j ];
+      const vector< double >& pointJ = points[ sj ];
+      double distance = 0.0;
+      for ( size_t k = 0; k < pointI.size(); ++k ) {
+        double difference = pointI[ k ] - pointJ[ k ];
+        distance += difference * difference;
+      }
+      distances.push_back( make_pair( distance, make_pair( si, sj ) ) );
+    }
+  }
+  sort( distances.begin(), distances.end(), FirstComparator() );
+
+  vector< size_t > sortedIndices;
+  sortedIndices.reserve( dimension + 1 );
+  while ( sortedIndices.size() <= dimension ) {
+    pair< size_t, size_t > indices = distances.back().second;
+    distances.pop_back();
+    if ( find( sortedIndices.begin(), sortedIndices.end(), indices.first ) == sortedIndices.end() ) {
+      sortedIndices.push_back( indices.first );
+    }
+    if ( find( sortedIndices.begin(), sortedIndices.end(), indices.second ) == sortedIndices.end() ) {
+      sortedIndices.push_back( indices.second );
+    }
+  }
+
   // Create initial simplex using the (dimension + 1) first points.
-  // The facets have vertices [0, ..., dimension - 1], [1, ..., dimension], ..., [dimension, 0, ..., dimension - 2]
+  // The facets have vertices [0, ..., dimension - 1], [1, ..., dimension], ..., [dimension, 0, ..., dimension - 2] in sortedIndices.
   vector< size_t > vertexIndices( dimension );
   for ( size_t i = 0; i <= dimension; ++i ) {
     for ( size_t j = 0; j < dimension; ++j ) {
-      vertexIndices[ j ] = ( i + j ) % ( dimension + 1 );
+      vertexIndices[ j ] = sortedIndices[ ( i + j ) % ( dimension + 1 ) ];
     }
     facets.push_back( Facet( vertexIndices ) );
-  }
-
-  for ( FacetIt fIt = facets.begin(); fIt != facets.end(); ++fIt ) {
-    fIt->isNewFacet = false;
+    facets.back().isNewFacet = false;
   }
 
   // Update the facets' neighbors
@@ -448,6 +462,7 @@ void updateFacetNormalAndOffset_( const vector< vector< double > >& points,
     hyperPlanes++;
 
     // Orient normal inwards
+    ++dist4;
     if ( isFacetVisibleFromPoint_( facet, origin ) ) {
       for ( vector< double >::iterator nIt = facet.normal.begin(); nIt != facet.normal.end(); ++nIt ) {
         *nIt = -( *nIt );
@@ -473,6 +488,7 @@ void initializeOutsideSets_( const vector< vector< double > >& points,
         ++dist1;
         double distance = distance_( *fIt, point );
         if ( distance > maxDistance ) {
+          //assignPointToFarthestFacet_( &( *fIt ), distance, pi, point, pi );
           maxDistance = distance;
           farthestFacetIt = fIt;
         }
@@ -502,13 +518,15 @@ size_t getAndEraseFarthestPointFromOutsideSet_( const vector< vector< double > >
 void getVisibleFacets_( const vector< double >& apex,
                         FacetIt facetIt,
                         vector< FacetIt >& visibleFacets,
-                        vector< pair< FacetIt, FacetIt > >& horizon )
+                        vector< pair< FacetIt, FacetIt > >& horizon,
+                        vector< size_t >& visibleToHorizon )
 {
   facetIt->visible = true;
   facetIt->visitIndex = 0;
   size_t startIndex = visibleFacets.size();
   visibleFacets.push_back( facetIt );
   for ( size_t vi = startIndex; vi < visibleFacets.size(); ++vi ) {
+    visibleToHorizon.push_back( (size_t)-1 );
     FacetIt visibleFacetIt = visibleFacets[ vi ];
     const Facet& visibleFacet = *visibleFacetIt;
     for ( size_t ni = 0; ni < visibleFacet.neighbors.size(); ++ni ) {
@@ -516,6 +534,7 @@ void getVisibleFacets_( const vector< double >& apex,
       Facet& neighbor = *neighborIt;
 
       if ( neighbor.visitIndex != 0 ) {
+        ++dist5;
         if ( isFacetVisibleFromPoint_( neighbor, apex ) ) {
           visibleFacets.push_back( neighborIt );
           neighbor.visible = true;
@@ -523,6 +542,8 @@ void getVisibleFacets_( const vector< double >& apex,
       }
 
       if ( !neighbor.visible ) {
+        assert( visibleToHorizon.size() + startIndex > vi );
+        visibleToHorizon[ vi - startIndex ] = horizon.size();
         horizon.push_back( make_pair( visibleFacetIt, neighborIt ) );
       }
       neighbor.visitIndex = 0;
@@ -686,12 +707,11 @@ void createNewFacets_( size_t apexIndex,
   }
 }
 
-void assignPointToFarthestFacet_( Facet* facet,
-                                  double bestDistance,
-                                  size_t pointIndex,
-                                  const vector< double >& point,
-                                  Facet*& facetOfPreviousPoint,
-                                  size_t visitIndex )
+Facet* assignPointToFarthestFacet_( Facet* facet,
+                                    double bestDistance,
+                                    size_t pointIndex,
+                                    const vector< double >& point,
+                                    size_t visitIndex )
 {
   // Found a facet for which the point is an outside point
   // Recursively check whether its neighbors are even farther
@@ -716,40 +736,53 @@ void assignPointToFarthestFacet_( Facet* facet,
     }
   }
 
-  facetOfPreviousPoint = facet;
   facet->outsideIndices.push_back( pointIndex );
   if ( bestDistance > facet->farthestOutsidePointDistance ) {
     facet->farthestOutsidePointDistance = bestDistance;
     facet->farthestOutsidePointIndex = pointIndex;
   }
+  return facet;
 }
 
 void updateOutsideSets_( const vector< vector< double > >& points,
                          const vector< vector< size_t > >& visibleFacetOutsideIndices,
-                         vector< FacetIt >& newFacets )
+                         vector< FacetIt >& newFacets,
+                         vector< size_t >& visibleToHorizon )
 {
   assert( newFacets.size() > 0 );
+  assert( visibleToHorizon.size() == visibleFacetOutsideIndices.size() );
+
   for ( size_t vi = 0; vi < visibleFacetOutsideIndices.size(); ++vi ) {
     Facet* facetOfPreviousPoint = NULL;
     const vector< size_t >& outsideIndices = visibleFacetOutsideIndices[ vi ];
     for ( size_t pi = 0; pi < outsideIndices.size(); ++pi ) {
       const size_t pointIndex = outsideIndices[ pi ];
       const vector< double >& point = points[ pointIndex ];
-      double bestDistance = 0.0;
+
       if ( facetOfPreviousPoint != NULL ) {
         ++dist2;
-        bestDistance = distance_( *facetOfPreviousPoint, point );
+        double bestDistance = distance_( *facetOfPreviousPoint, point );
         if ( bestDistance > 0.0 ) {
-          assignPointToFarthestFacet_( facetOfPreviousPoint, bestDistance, pointIndex, point, facetOfPreviousPoint, 0 );
+          facetOfPreviousPoint = assignPointToFarthestFacet_( facetOfPreviousPoint, bestDistance, pointIndex, point, 1 );
           continue;
         }
       }
+      else if ( visibleToHorizon[ vi ] != (size_t)-1 ) {
+        ++dist2;
+        assert( visibleToHorizon[ vi ] < newFacets.size() );
+        double bestDistance = distance_( *newFacets[ visibleToHorizon[ vi ] ], point );
+        if ( bestDistance > 0.0 ) {
+          facetOfPreviousPoint = assignPointToFarthestFacet_( &( *newFacets[ visibleToHorizon[ vi ] ] ), bestDistance, pointIndex, point, 0 );
+          continue;
+        }
+      }
+
       for ( size_t fi = 0; fi < newFacets.size(); ++fi ) {
         Facet& newFacet = *newFacets[ fi ];
         ++dist2;
         double bestDistance = distance_( newFacet, point );
         if ( bestDistance > 0.0 ) {
-          assignPointToFarthestFacet_( &newFacet, bestDistance, pointIndex, point, facetOfPreviousPoint, fi + 1 );
+          facetOfPreviousPoint = assignPointToFarthestFacet_( &newFacet, bestDistance, pointIndex, point, fi + 2 );
           break;
         }
       }
@@ -881,6 +914,7 @@ void overwritingSolveLinearSystemOfEquations_( vector< vector< double > >& A,
   for ( size_t j = n; j > 0; --j ) {
     size_t i = j - 1;
     double sum = inner_product( A[ i ].begin() + j, A[ i ].end(), b.begin() + j, 0.0 );
+
     if ( A[ i ][ i ] != 0.0 ) {
       b[ i ] = ( b[ i ] - sum ) / A[ i ][ i ];
     }
@@ -903,6 +937,7 @@ void throwExceptionIfNotConvexPolytope_( const list< Facet >& facets )
 {
   for ( FacetConstIt fIt = facets.begin(); fIt != facets.end(); ++fIt ) {
     for ( size_t i = 0; i < fIt->neighbors.size(); ++i ) {
+      ++dist6;
       if ( isFacetVisibleFromPoint_( *fIt, fIt->neighbors[ i ]->center ) ) {
         throw invalid_argument( "Not a convex polytope" );
       }

@@ -28,20 +28,20 @@ namespace ConvexHull {
       // the offset of the facet from the origin
       double offset;
 
-      // indicates whether the facet is visible from the point under consideration
-      bool visible;
-
       // indicates whether the facet has been visited in the search for visible facets or in the assignment of outside points
       size_t visitIndex;
-
-      // indicates whether the facet was just created
-      bool isNewFacet;
 
       // the index of the outside point that is farthest from the facet
       size_t farthestOutsidePointIndex;
 
       // the distance from the farthest point to the facet
       double farthestOutsidePointDistance;
+
+      // indicates whether the facet is visible from the point under consideration
+      bool visible;
+
+      // indicates whether the facet was just created
+      bool isNewFacet;
   };
 
   // Returns the vertex indices of the facets constituting the convex hull of the input points
