@@ -556,6 +556,13 @@ size_t getHashValue_( const vector< size_t >& v )
   size_t sum = 0;
   vector< size_t >::const_iterator vIt = v.begin();
   switch ( v.size() ) {
+    default:
+      for ( size_t i = 15; i < v.size(); ++i ) {
+        size_t i2 = ( i + 1 ) * ( i + 1 );
+        size_t i4 = i2 * i2;
+        size_t i8 = i4 * i4;
+        sum += v[ v.size() - i - 1 ] * i8 * i4;
+      }
     case 15: sum += *( vIt++ ) * Power< 15, 12 >::value;
     case 14: sum += *( vIt++ ) * Power< 14, 12 >::value;
     case 13: sum += *( vIt++ ) * Power< 13, 12 >::value;
@@ -571,13 +578,7 @@ size_t getHashValue_( const vector< size_t >& v )
     case 3:  sum += *( vIt++ ) * Power< 3, 12 >::value;
     case 2:  sum += *( vIt++ ) * Power< 2, 12 >::value;
     case 1:  sum += *( vIt++ );
-    default:
-      for ( size_t i = 15; i < v.size(); ++i ) {
-        size_t i2 = ( i + 1 ) * ( i + 1 );
-        size_t i4 = i2 * i2;
-        size_t i8 = i4 * i4;
-        sum += v[ v.size() - i - 1 ] * i8 * i4;
-      }
+    case 0: ;
   }
   return sum;
 }
@@ -820,6 +821,10 @@ double scalarProduct_( const vector< double >& a,
   assert( a.size() == b.size() );
   double sum = 0.0;
   switch ( a.size() ) {
+    default:
+      for ( size_t i = 15; i < a.size(); ++i ) {
+        sum += a[ i ] * b[ i ];
+      }
     case 15: sum += a[ 14 ] * b[ 14 ];
     case 14: sum += a[ 13 ] * b[ 13 ];
     case 13: sum += a[ 12 ] * b[ 12 ];
@@ -835,10 +840,7 @@ double scalarProduct_( const vector< double >& a,
     case 3:  sum += a[ 2 ] * b[ 2 ];
     case 2:  sum += a[ 1 ] * b[ 1 ];
     case 1:  sum += a[ 0 ] * b[ 0 ];
-    default:
-      for ( size_t i = 15; i < a.size(); ++i ) {
-        sum += a[ i ] * b[ i ];
-      }
+    case 0: ;
   }
   return sum;
 }
@@ -875,6 +877,7 @@ void overwritingSolveLinearSystemOfEquations_( vector< vector< double > >& A,
     // Here, it is utilized that L is not needed
     // (if L is needed, first divide A[ i ][ k ] by A[ k ][ k ], then subtract A[ i ][ k ] * A[ k ][ j ] from A[ i ][ j ])
     double invDiag = 1.0 / A[ k ][ k ];
+    size_t numElements = min( n - k - 1, size_t( 15 ) );
     for ( size_t i = k + 1; i < n; ++i ) {
       double factor = A[ i ][ k ] * invDiag;
       // The loop unrolling below is equivalent to this:
@@ -883,7 +886,7 @@ void overwritingSolveLinearSystemOfEquations_( vector< vector< double > >& A,
       // }
       vector< double >::iterator iIt = A[ i ].begin() + k + 1;
       vector< double >::iterator kIt = A[ k ].begin() + k + 1;
-      switch ( n - k - 1 ) {
+      switch ( numElements ) {
         case 15: *iIt++ -= factor * *kIt++;
         case 14: *iIt++ -= factor * *kIt++;
         case 13: *iIt++ -= factor * *kIt++;
@@ -900,7 +903,7 @@ void overwritingSolveLinearSystemOfEquations_( vector< vector< double > >& A,
         case 2:  *iIt++ -= factor * *kIt++;
         case 1:  *iIt++ -= factor * *kIt++;
         default:
-          for ( ; iIt != A[ i ].end(); ++iIt, ++kIt ) {
+          for ( ; iIt != A[ i ].end(); ++iIt, ++kIt) {
             *iIt -= factor * *kIt;
           }
       }

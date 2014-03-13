@@ -270,13 +270,31 @@ size_t testSpeedUniform_()
 
 bool testConvexHullMultiple_()
 {
-  Test t( "Computing 1D-11D convex hull." );
+  Test t( "Computing 1D-10D convex hull." );
   size_t expected[ 11 ] = { 2, 11, 38, 149, 534, 1585, 5596, 15353, 41822, 101718, 276556 };
 
   bool exceptionCaught = false;
-  for ( size_t i = 0; i < 11; ++i ) {
+  for ( size_t i = 0; i < 10; ++i ) {
     try {
       t.verify( expected[ i ], testSpeedRandom_( 50, i + 1 ), "Number of facets is correct" );
+    }
+    catch ( exception e ) {
+      exceptionCaught = true;
+    }
+  }
+  t.verify( false, exceptionCaught, "No exception" );
+
+  return t.endTest();
+}
+
+bool testConvexHullHighDim_()
+{
+  Test t( "Computing 1D-30D convex hull." );
+
+  bool exceptionCaught = false;
+  for ( size_t i = 0; i < 30; ++i ) {
+    try {
+      t.verify( true, testSpeedRandom_( i + 5, i + 1 ) > i + 1, "Number of facets is larger than dimension" );
     }
     catch ( exception e ) {
       exceptionCaught = true;
@@ -295,7 +313,8 @@ int main( int argc, const char* argv[] )
     Test t( "Convex hull suite" );
     t.verify( testConvexHull2D_(), "Test 2D" );
     t.verify( testConvexHull3D_(), "Test 3D" );
-    t.verify( testConvexHullMultiple_(), "Test 1D-11D" );
+    t.verify( testConvexHullMultiple_(), "Test 1D-10D" );
+    t.verify( testConvexHullHighDim_(), "Test 1D-30D" );
     t.endTest( true );
   }
   else {
