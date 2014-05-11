@@ -564,21 +564,21 @@ size_t getHashValue_( const vector< size_t >& v )
         size_t i8 = i4 * i4;
         sum += *vIt++ * i8 * i4;
       }
-    case 15: sum += *( vIt++ ) * Power< 15, 12 >::value;
-    case 14: sum += *( vIt++ ) * Power< 14, 12 >::value;
-    case 13: sum += *( vIt++ ) * Power< 13, 12 >::value;
-    case 12: sum += *( vIt++ ) * Power< 12, 12 >::value;
-    case 11: sum += *( vIt++ ) * Power< 11, 12 >::value;
-    case 10: sum += *( vIt++ ) * Power< 10, 12 >::value;
-    case 9:  sum += *( vIt++ ) * Power< 9, 12 >::value;
-    case 8:  sum += *( vIt++ ) * Power< 8, 12 >::value;
-    case 7:  sum += *( vIt++ ) * Power< 7, 12 >::value;
-    case 6:  sum += *( vIt++ ) * Power< 6, 12 >::value;
-    case 5:  sum += *( vIt++ ) * Power< 5, 12 >::value;
-    case 4:  sum += *( vIt++ ) * Power< 4, 12 >::value;
-    case 3:  sum += *( vIt++ ) * Power< 3, 12 >::value;
-    case 2:  sum += *( vIt++ ) * Power< 2, 12 >::value;
-    case 1:  sum += *( vIt++ );
+    case 15: sum += *vIt++ * Power< 15, 12 >::value;
+    case 14: sum += *vIt++ * Power< 14, 12 >::value;
+    case 13: sum += *vIt++ * Power< 13, 12 >::value;
+    case 12: sum += *vIt++ * Power< 12, 12 >::value;
+    case 11: sum += *vIt++ * Power< 11, 12 >::value;
+    case 10: sum += *vIt++ * Power< 10, 12 >::value;
+    case 9:  sum += *vIt++ * Power< 9, 12 >::value;
+    case 8:  sum += *vIt++ * Power< 8, 12 >::value;
+    case 7:  sum += *vIt++ * Power< 7, 12 >::value;
+    case 6:  sum += *vIt++ * Power< 6, 12 >::value;
+    case 5:  sum += *vIt++ * Power< 5, 12 >::value;
+    case 4:  sum += *vIt++ * Power< 4, 12 >::value;
+    case 3:  sum += *vIt++ * Power< 3, 12 >::value;
+    case 2:  sum += *vIt++ * Power< 2, 12 >::value;
+    case 1:  sum += *vIt++;
     case 0: ;
   }
   return sum;
@@ -592,11 +592,13 @@ void createNewFacets_( size_t apexIndex,
                        vector< vector< size_t > >& preallocatedPeaks )
 {
   assert( horizon.size() > 0 );
+  newFacets.clear();
+  newFacets.reserve( horizon.size() );
+
+  vector< Facet > tmpNewFacets;
+  tmpNewFacets.reserve( min( horizon.size(), visibleFacets.size() ) );
 
   // Construct new facets
-  vector< Facet > tmpNewFacets;
-  tmpNewFacets.reserve( horizon.size() );
-
   const size_t dimension = horizon.front().first->vertexIndices.size();
   for ( size_t hi = 0; hi < horizon.size(); ++hi ) {
     const FacetIt visibleFacetIt = horizon[ hi ].first;
@@ -615,24 +617,26 @@ void createNewFacets_( size_t apexIndex,
     assert( size_t( it - vertexIndices.begin() + 1 ) == dimension );
     vertexIndices.back() = apexIndex;
     sort( vertexIndices.begin(), vertexIndices.end() );
-    tmpNewFacets.push_back( Facet( vertexIndices ) );
-  }
-
-  newFacets.clear();
-  newFacets.reserve( horizon.size() );
-  for ( size_t hi = 0; hi < horizon.size(); ++hi ) {
-    FacetIt newFacetIt;
-    if ( visibleFacets.size() > 0 ) {
-      // Reuse the space of visible facets, which are to be removed
-      *visibleFacets.back() = tmpNewFacets[ hi ];
-      newFacetIt = visibleFacets.back();
-      visibleFacets.pop_back();
+    if ( hi < visibleFacets.size() ) {
+      tmpNewFacets.push_back( Facet( vertexIndices ) );
+      newFacets.push_back( *( visibleFacets.end() - hi - 1 ) );
     }
     else {
-      facets.push_back( tmpNewFacets[ hi ] );
-      newFacetIt = facets.end();
-      --newFacetIt;
+      facets.push_back( Facet( vertexIndices ) );
+      newFacets.push_back( facets.end() );
+      --newFacets.back();
     }
+  }
+
+  // Reuse the space of visible facets, which are to be removed
+  for ( size_t hi = 0; hi < tmpNewFacets.size(); ++hi ) {
+    *visibleFacets.back() = tmpNewFacets[ hi ];
+    visibleFacets.pop_back();
+  }
+
+  // Connect new facet to its neighbors
+  for ( size_t hi = 0; hi < horizon.size(); ++hi ) {
+    FacetIt newFacetIt = newFacets[ hi ];
     // The new facet is neighbor to its obscured parent, and vice versa
     const FacetIt visibleFacetIt = horizon[ hi ].first;
     FacetIt obscuredFacetIt = horizon[ hi ].second;
@@ -641,7 +645,6 @@ void createNewFacets_( size_t apexIndex,
     *fItIt = newFacetIt;
     obscuredFacetIt->visitIndex = (size_t)-1;
     newFacetIt->neighbors.push_back( obscuredFacetIt );
-    newFacets.push_back( newFacetIt );
   }
 
   vector< vector< size_t > >& peaks = preallocatedPeaks;
@@ -825,27 +828,29 @@ double scalarProduct_( const vector< double >& a,
 
   distanceTests++;
   assert( a.size() == b.size() );
+  vector< double >::const_iterator aIt = a.begin();
+  vector< double >::const_iterator bIt = b.begin();
   double sum = 0.0;
   switch ( a.size() ) {
     default:
-      for ( size_t i = 15; i < a.size(); ++i ) {
-        sum += a[ i ] * b[ i ];
+      for ( ; aIt != a.end() - 15; ++aIt, ++bIt ) {
+        sum += *aIt * *bIt;
       }
-    case 15: sum += a[ 14 ] * b[ 14 ];
-    case 14: sum += a[ 13 ] * b[ 13 ];
-    case 13: sum += a[ 12 ] * b[ 12 ];
-    case 12: sum += a[ 11 ] * b[ 11 ];
-    case 11: sum += a[ 10 ] * b[ 10 ];
-    case 10: sum += a[ 9 ] * b[ 9 ];
-    case 9:  sum += a[ 8 ] * b[ 8 ];
-    case 8:  sum += a[ 7 ] * b[ 7 ];
-    case 7:  sum += a[ 6 ] * b[ 6 ];
-    case 6:  sum += a[ 5 ] * b[ 5 ];
-    case 5:  sum += a[ 4 ] * b[ 4 ];
-    case 4:  sum += a[ 3 ] * b[ 3 ];
-    case 3:  sum += a[ 2 ] * b[ 2 ];
-    case 2:  sum += a[ 1 ] * b[ 1 ];
-    case 1:  sum += a[ 0 ] * b[ 0 ];
+    case 15: sum += *aIt++ * *bIt++;
+    case 14: sum += *aIt++ * *bIt++;
+    case 13: sum += *aIt++ * *bIt++;
+    case 12: sum += *aIt++ * *bIt++;
+    case 11: sum += *aIt++ * *bIt++;
+    case 10: sum += *aIt++ * *bIt++;
+    case 9: sum += *aIt++ * *bIt++;
+    case 8: sum += *aIt++ * *bIt++;
+    case 7: sum += *aIt++ * *bIt++;
+    case 6: sum += *aIt++ * *bIt++;
+    case 5: sum += *aIt++ * *bIt++;
+    case 4: sum += *aIt++ * *bIt++;
+    case 3: sum += *aIt++ * *bIt++;
+    case 2: sum += *aIt++ * *bIt++;
+    case 1: sum += *aIt++ * *bIt++;
     case 0: ;
   }
   return sum;
@@ -893,21 +898,21 @@ void overwritingSolveLinearSystemOfEquations_( vector< vector< double > >& A,
       vector< double >::iterator iIt = A[ i ].begin() + k + 1;
       vector< double >::iterator kIt = A[ k ].begin() + k + 1;
       switch ( numElements ) {
-        case 15: *( iIt++ ) -= factor * *( kIt++ );
-        case 14: *( iIt++ ) -= factor * *( kIt++ );
-        case 13: *( iIt++ ) -= factor * *( kIt++ );
-        case 12: *( iIt++ ) -= factor * *( kIt++ );
-        case 11: *( iIt++ ) -= factor * *( kIt++ );
-        case 10: *( iIt++ ) -= factor * *( kIt++ );
-        case 9:  *( iIt++ ) -= factor * *( kIt++ );
-        case 8:  *( iIt++ ) -= factor * *( kIt++ );
-        case 7:  *( iIt++ ) -= factor * *( kIt++ );
-        case 6:  *( iIt++ ) -= factor * *( kIt++ );
-        case 5:  *( iIt++ ) -= factor * *( kIt++ );
-        case 4:  *( iIt++ ) -= factor * *( kIt++ );
-        case 3:  *( iIt++ ) -= factor * *( kIt++ );
-        case 2:  *( iIt++ ) -= factor * *( kIt++ );
-        case 1:  *( iIt++ ) -= factor * *( kIt++ );
+        case 15: *iIt++ -= factor * *kIt++;
+        case 14: *iIt++ -= factor * *kIt++;
+        case 13: *iIt++ -= factor * *kIt++;
+        case 12: *iIt++ -= factor * *kIt++;
+        case 11: *iIt++ -= factor * *kIt++;
+        case 10: *iIt++ -= factor * *kIt++;
+        case 9:  *iIt++ -= factor * *kIt++;
+        case 8:  *iIt++ -= factor * *kIt++;
+        case 7:  *iIt++ -= factor * *kIt++;
+        case 6:  *iIt++ -= factor * *kIt++;
+        case 5:  *iIt++ -= factor * *kIt++;
+        case 4:  *iIt++ -= factor * *kIt++;
+        case 3:  *iIt++ -= factor * *kIt++;
+        case 2:  *iIt++ -= factor * *kIt++;
+        case 1:  *iIt++ -= factor * *kIt++;
         default:
           for ( ; iIt != A[ i ].end(); ++iIt, ++kIt) {
             *iIt -= factor * *kIt;
