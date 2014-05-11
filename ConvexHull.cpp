@@ -229,15 +229,15 @@ vector< vector< size_t > > computeConvexHull_( const vector< vector< double > >&
   // Check that the input data is correct
   throwExceptionIfInvalidPerturbation_( perturbation, unperturbedPoints );
 
-
   // Perform perturbation of the input points
   const vector< vector< double > >& points = perturbation > 0.0 ? perturbPoints_( unperturbedPoints, perturbation )
                                                                 : unperturbedPoints;
 
-  // Get the indices of the extreme points
-  const size_t dimension = unperturbedPoints.front().size();
-  const vector< size_t >& initialPointIndices = getInitialPointIndices_( points );
+  const size_t dimension = points.front().size();
   assert( points.size() > dimension );
+
+  // Get the indices of the extreme points
+  const vector< size_t >& initialPointIndices = getInitialPointIndices_( points );
 
   // Create simplex using the extreme points
   list< Facet > facets;
@@ -250,11 +250,7 @@ vector< vector< size_t > > computeConvexHull_( const vector< vector< double > >&
   catch ( invalid_argument e ) {
     // Failed to grow the convex hull. Change perturbation and retry
     cerr << e.what() << endl;
-    double newPerturbation = perturbation == 0.0 ? 1e-9 : 100 * perturbation;
-    throwExceptionIfInvalidPerturbation_( newPerturbation, unperturbedPoints );
-    if ( depth > 2 ) {
-      throw invalid_argument( "No solution was found although perturbation was increased 3 times." );
-    }
+    double newPerturbation = perturbation == 0.0 ? 1e-9 : 10 * perturbation;
     return computeConvexHull_( unperturbedPoints, newPerturbation, depth + 1 );
   }
 
@@ -295,23 +291,14 @@ vector< size_t > getInitialPointIndices_( const vector< vector< double > >& poin
   return startPointIndices;
 }
 
-void getInitialSimplex_( const vector< vector< double > >& points,
-                         const vector< size_t >& startPointIndices,
-                         list< Facet >& facets )
+vector< pair< double, pair< size_t, size_t > > > getPairwiseSquaredDistances_( const vector< size_t >& indices, const vector< vector< double > >& points )
 {
-  facets.clear();
-  const size_t dimension = points.size() == 0 ? 0 : points.front().size();
-  if ( points.size() <= dimension ) {
-    throw invalid_argument( "Too few input points to construct convex hull." );
-  }
-
-  // Compute pairwise distances between the extreme points
   vector< pair< double, pair< size_t, size_t > > > distances;
-  for ( size_t i = 0; i < startPointIndices.size(); ++i ) {
-    size_t si = startPointIndices[ i ];
+  for ( size_t i = 0; i < indices.size(); ++i ) {
+    size_t si = indices[ i ];
     const vector< double >& pointI = points[ si ];
-    for ( size_t j = i + 1; j < startPointIndices.size(); ++j ) {
-      size_t sj = startPointIndices[ j ];
+    for ( size_t j = i + 1; j < indices.size(); ++j ) {
+      size_t sj = indices[ j ];
       const vector< double >& pointJ = points[ sj ];
       double distance = 0.0;
       for ( size_t k = 0; k < pointI.size(); ++k ) {
@@ -322,6 +309,20 @@ void getInitialSimplex_( const vector< vector< double > >& points,
     }
   }
   sort( distances.begin(), distances.end(), FirstComparator() );
+  return distances;
+}
+
+void getInitialSimplex_( const vector< vector< double > >& points,
+                         const vector< size_t >& startPointIndices,
+                         list< Facet >& facets )
+{
+  facets.clear();
+  const size_t dimension = points.size() == 0 ? 0 : points.front().size();
+  if ( points.size() <= dimension ) {
+    throw invalid_argument( "Too few input points to construct convex hull." );
+  }
+
+  vector< pair< double, pair< size_t, size_t > > > distances = getPairwiseSquaredDistances_( startPointIndices, points );
 
   vector< size_t > sortedIndices;
   sortedIndices.reserve( dimension + 1 );
@@ -764,7 +765,7 @@ void updateOutsideSets_( const vector< vector< double > >& points,
         ++dist2;
         double bestDistance = distance_( *facetOfPreviousPoint, point );
         if ( bestDistance > 0.0 ) {
-          facetOfPreviousPoint = assignPointToFarthestFacet_( facetOfPreviousPoint, bestDistance, pointIndex, point, 1 );
+          facetOfPreviousPoint = assignPointToFarthestFacet_( facetOfPreviousPoint, bestDistance, pointIndex, point, pi );
           continue;
         }
       }
@@ -773,17 +774,22 @@ void updateOutsideSets_( const vector< vector< double > >& points,
         assert( visibleToHorizon[ vi ] < newFacets.size() );
         double bestDistance = distance_( *newFacets[ visibleToHorizon[ vi ] ], point );
         if ( bestDistance > 0.0 ) {
-          facetOfPreviousPoint = assignPointToFarthestFacet_( &( *newFacets[ visibleToHorizon[ vi ] ] ), bestDistance, pointIndex, point, 0 );
+          facetOfPreviousPoint = assignPointToFarthestFacet_( &( *newFacets[ visibleToHorizon[ vi ] ] ), bestDistance, pointIndex, point, pi );
           continue;
         }
       }
 
+      // If the point was not outside the predicted facets, we have to search through all facets
       for ( size_t fi = 0; fi < newFacets.size(); ++fi ) {
         Facet& newFacet = *newFacets[ fi ];
+        if ( ( facetOfPreviousPoint != NULL && facetOfPreviousPoint == &( *newFacets[ fi ] ) ) ||
+             ( facetOfPreviousPoint == NULL && visibleToHorizon[ vi ] == fi ) ) {
+          continue;
+        }
         ++dist2;
         double bestDistance = distance_( newFacet, point );
         if ( bestDistance > 0.0 ) {
-          facetOfPreviousPoint = assignPointToFarthestFacet_( &newFacet, bestDistance, pointIndex, point, fi + 2 );
+          facetOfPreviousPoint = assignPointToFarthestFacet_( &newFacet, bestDistance, pointIndex, point, pi );
           break;
         }
       }
@@ -995,29 +1001,16 @@ void throwExceptionIfInvalidPerturbation_( double perturbation,
   if ( perturbation < 0.0 ) {
     throw invalid_argument( "Perturbation must be nonnegative." );
   }
-  if ( perturbation > 1e-3 ) {
-    throw invalid_argument( "Perturbation too large." );
-  }
-  /*
   if ( perturbation == 0.0 ) {
     return;
   }
 
-  double maxSquareDistance = 0.0;
-  for ( size_t i = 0; i < points.size(); ++i ) {
-    for ( size_t j = i + 1; j < points.size(); ++j ) {
-      double squareDistance = 0.0;
-      for ( size_t d = 0; d < points[ i ].size(); ++d ) {
-        double difference = ( points[ i ][ d ] - points[ j ][ d ] );
-        squareDistance += difference * difference;
-      }
-      maxSquareDistance = max( maxSquareDistance, squareDistance );
-    }
-  }
-  if ( perturbation * perturbation > maxSquareDistance ) {
+  const vector< size_t >& initialPointIndices = getInitialPointIndices_( points );
+  vector< pair< double, pair< size_t, size_t > > > distances = getPairwiseSquaredDistances_( initialPointIndices, points );
+  double maxDistance = sqrt( distances.back().first );
+  if ( perturbation > 0.01 * maxDistance ) {
     throw invalid_argument( "Perturbation is larger than 1 percent of the maximum distance between points." );
   }
-  */
 }
 
 } // namespace

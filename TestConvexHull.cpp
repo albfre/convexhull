@@ -2,6 +2,7 @@
 #include <assert.h>
 #include <cstdlib>
 #include <iostream>
+#include <iomanip>
 #include <sstream>
 
 #include <iterator>
@@ -38,7 +39,6 @@ class Test {
 
     ~Test()
     {
-      assert( testEnded_ );
     }
 
     void verify( bool b, const string& s )
@@ -58,7 +58,7 @@ class Test {
       }
       string passOrFail = b ? "  [OK]" : "[FAIL]";
       output += left + dots + " " + passOrFail;
-      cout << output << endl;
+      cout << output << endl << endl;
     }
 
     template < typename T >
@@ -93,7 +93,6 @@ class Test {
       for ( size_t i = 0; i < textLength_; ++i ) {
         equal += "=";
       }
-      cout << endl;
       cout << equal << endl;
 
       if ( printPassOrFail ) {
@@ -105,7 +104,7 @@ class Test {
         }
 
         stringstream ss;
-        ss << "CPU seconds to run test: " << ( clock() - start_ ) / CLOCKS_PER_SEC;
+        ss << "CPU seconds to run test: " << setprecision( 4 ) << ( clock() - start_ ) / CLOCKS_PER_SEC;
         string time = ss.str();
         string spacesTime;
 
@@ -208,7 +207,7 @@ bool testConvexHull3D_()
   return t.endTest();
 }
 
-size_t testSpeedRandom_( size_t numOfPoints, size_t dimension, bool print = false )
+size_t testSpeedRandom_( size_t numOfPoints, size_t dimension, size_t loop = 1, bool print = false )
 {
   srand( 123 );
   vector< vector< double > > points;
@@ -231,10 +230,13 @@ size_t testSpeedRandom_( size_t numOfPoints, size_t dimension, bool print = fals
   }
   cout << "Convex hull of " << points.size() << " points in " << dimension << "D." << endl << endl;
   double start = clock();
-  vector< vector< size_t > > facets = computeConvexHull( points );
+  vector< vector< size_t > > facets;
+  for ( size_t i = 0; i < loop; ++i ) {
+    facets = computeConvexHull( points );
+  }
   double stop = clock();
   cout << "Number of facets: " << facets.size() << endl;
-  cout << "CPU seconds to compute hull (after input): " << ( stop - start ) / CLOCKS_PER_SEC << endl << endl;
+  cout << "CPU seconds to compute hull (after input): " << setprecision( 4 ) << ( stop - start ) / ( loop * CLOCKS_PER_SEC ) << endl << endl;
   return facets.size();
 }
 
@@ -264,7 +266,7 @@ size_t testSpeedUniform_()
   vector< vector< size_t > > facets = computeConvexHull( points, 1e-8 );
   double stop = clock();
   cout << "Number of facets: " << facets.size() << endl;
-  cout << "CPU seconds to compute hull (after input): " << ( stop - start ) / CLOCKS_PER_SEC << endl << endl;
+  cout << "CPU seconds to compute hull (after input): " << setprecision( 4 ) << ( stop - start ) / CLOCKS_PER_SEC << endl << endl;
   return facets.size();
 }
 
@@ -278,7 +280,7 @@ bool testConvexHullMultiple_()
     try {
       t.verify( expected[ i ], testSpeedRandom_( 50, i + 1 ), "Number of facets is correct" );
     }
-    catch ( exception e ) {
+    catch ( ... ) {
       exceptionCaught = true;
     }
   }
@@ -296,11 +298,45 @@ bool testConvexHullHighDim_()
     try {
       t.verify( true, testSpeedRandom_( i + 5, i + 1 ) > i + 1, "Number of facets is larger than dimension" );
     }
-    catch ( exception e ) {
+    catch ( ... ) {
       exceptionCaught = true;
     }
   }
   t.verify( false, exceptionCaught, "No exception" );
+
+  return t.endTest();
+}
+
+bool testDisallowedParameters_()
+{
+  Test t( "Passing disallowed parameters" );
+  {
+    vector< vector< double > > points( 10, vector< double >( 3 ) );
+    double perturbation = -1e-10;
+    cout << "Convex hull of " << points.size() << " points in " << points.front().size() << "D with perturbation" << perturbation << "." << endl << endl;
+    bool exceptionCaught = false;
+    try {
+      vector< vector< size_t > > facets = computeConvexHull( points, perturbation );
+    }
+    catch ( ... ) {
+      exceptionCaught = true;
+    }
+    t.verify( true, exceptionCaught, "Caught exception" );
+  }
+
+  {
+    vector< vector< double > > points( 10, vector< double >( 11 ) );
+    double perturbation = 1e-10;
+    cout << "Convex hull of " << points.size() << " points in " << points.front().size() << "D with perturbation" << perturbation << "." << endl << endl;
+    bool exceptionCaught = false;
+    try {
+      vector< vector< size_t > > facets = computeConvexHull( points, perturbation );
+    }
+    catch ( ... ) {
+      exceptionCaught = true;
+    }
+    t.verify( true, exceptionCaught, "Caught exception" );
+  }
 
   return t.endTest();
 }
@@ -315,6 +351,7 @@ int main( int argc, const char* argv[] )
     t.verify( testConvexHull3D_(), "Test 3D" );
     t.verify( testConvexHullMultiple_(), "Test 1D-10D" );
     t.verify( testConvexHullHighDim_(), "Test 1D-30D" );
+    t.verify( testDisallowedParameters_(), "Test disallowed parameters" );
     t.endTest( true );
   }
   else {
@@ -331,8 +368,14 @@ int main( int argc, const char* argv[] )
         assert( dim > 0 );
         dimension = size_t( dim );
       }
+      size_t loop = 1;
+      if ( argc > 4 ) {
+        int loopInt = atoi( argv[ 4 ] );
+        assert( loop > 0 );
+        loop = size_t( loopInt );
+      }
       bool print = true;
-      testSpeedRandom_( numOfPoints, dimension, print );
+      testSpeedRandom_( numOfPoints, dimension, loop, print );
     }
     else if ( atoi( argv[ 1 ] ) == 1 ) {
       testSpeedUniform_();
