@@ -92,11 +92,11 @@ namespace {
 
   struct IsVisiblePredicate { bool operator() ( const FacetIt& f ) const { return f->visible; } };
 
-  template< int N, unsigned int P > struct Power {
+  template< size_t N, size_t P > struct Power {
     static const size_t value = N * Power< N, P - 1 >::value;
   };
 
-  template< int N > struct Power< N, 0 > {
+  template< size_t N > struct Power< N, 0 > {
     static const size_t value = 1;
   };
 }
@@ -558,11 +558,11 @@ size_t getHashValue_( const vector< size_t >& v )
   vector< size_t >::const_iterator vIt = v.begin();
   switch ( v.size() ) {
     default:
-      for ( size_t i = 15; i < v.size(); ++i ) {
-        size_t i2 = ( i + 1 ) * ( i + 1 );
+      for ( size_t i = v.size(); i > 15; --i ) {
+        size_t i2 = i * i;
         size_t i4 = i2 * i2;
         size_t i8 = i4 * i4;
-        sum += v[ v.size() - i - 1 ] * i8 * i4;
+        sum += *vIt++ * i8 * i4;
       }
     case 15: sum += *( vIt++ ) * Power< 15, 12 >::value;
     case 14: sum += *( vIt++ ) * Power< 14, 12 >::value;
@@ -893,21 +893,21 @@ void overwritingSolveLinearSystemOfEquations_( vector< vector< double > >& A,
       vector< double >::iterator iIt = A[ i ].begin() + k + 1;
       vector< double >::iterator kIt = A[ k ].begin() + k + 1;
       switch ( numElements ) {
-        case 15: *iIt++ -= factor * *kIt++;
-        case 14: *iIt++ -= factor * *kIt++;
-        case 13: *iIt++ -= factor * *kIt++;
-        case 12: *iIt++ -= factor * *kIt++;
-        case 11: *iIt++ -= factor * *kIt++;
-        case 10: *iIt++ -= factor * *kIt++;
-        case 9:  *iIt++ -= factor * *kIt++;
-        case 8:  *iIt++ -= factor * *kIt++;
-        case 7:  *iIt++ -= factor * *kIt++;
-        case 6:  *iIt++ -= factor * *kIt++;
-        case 5:  *iIt++ -= factor * *kIt++;
-        case 4:  *iIt++ -= factor * *kIt++;
-        case 3:  *iIt++ -= factor * *kIt++;
-        case 2:  *iIt++ -= factor * *kIt++;
-        case 1:  *iIt++ -= factor * *kIt++;
+        case 15: *( iIt++ ) -= factor * *( kIt++ );
+        case 14: *( iIt++ ) -= factor * *( kIt++ );
+        case 13: *( iIt++ ) -= factor * *( kIt++ );
+        case 12: *( iIt++ ) -= factor * *( kIt++ );
+        case 11: *( iIt++ ) -= factor * *( kIt++ );
+        case 10: *( iIt++ ) -= factor * *( kIt++ );
+        case 9:  *( iIt++ ) -= factor * *( kIt++ );
+        case 8:  *( iIt++ ) -= factor * *( kIt++ );
+        case 7:  *( iIt++ ) -= factor * *( kIt++ );
+        case 6:  *( iIt++ ) -= factor * *( kIt++ );
+        case 5:  *( iIt++ ) -= factor * *( kIt++ );
+        case 4:  *( iIt++ ) -= factor * *( kIt++ );
+        case 3:  *( iIt++ ) -= factor * *( kIt++ );
+        case 2:  *( iIt++ ) -= factor * *( kIt++ );
+        case 1:  *( iIt++ ) -= factor * *( kIt++ );
         default:
           for ( ; iIt != A[ i ].end(); ++iIt, ++kIt) {
             *iIt -= factor * *kIt;
