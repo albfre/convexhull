@@ -40,7 +40,6 @@ namespace {
   int distanceTests;
   int hyperPlanes;
   int dist1, dist2, dist3, dist4, dist5, dist6, dist7;
-  vector< vector< size_t > > INLINE_ATTRIBUTE computeConvexHull_( const vector< vector< double > >& unperturbedPoints, double perturbation, size_t depth );
   vector< size_t > INLINE_ATTRIBUTE getInitialPointIndices_( const vector< vector< double > >& points );
   void INLINE_ATTRIBUTE getInitialSimplex_( const vector< vector< double > >& points, const vector< size_t >& startPointIndices, list< Facet >& facets );
   vector< vector< double > > INLINE_ATTRIBUTE perturbPoints_( const vector< vector< double > >& points, double perturbation );
@@ -108,13 +107,53 @@ vector< vector< size_t > > computeConvexHull( const vector< vector< double > >& 
   distanceTests = 0;
   hyperPlanes = 0;
   // Check that the input data is correct
+  throwExceptionIfInvalidPerturbation_( perturbation, unperturbedPoints );
   throwExceptionIfTooFewPoints_( unperturbedPoints );
   const size_t dimension = unperturbedPoints.front().size();
   throwExceptionIfNotAllPointsHaveCorrectDimension_( unperturbedPoints, dimension );
 
-  // Always use the same seed to ensure deterministic behavior
-  srand( 4711 );
-  return computeConvexHull_( unperturbedPoints, perturbation, 0 );
+  // Set seed to ensure deterministic behavior,
+  // but use different seeds for different perturbations
+  double* perturbationPtr = &perturbation;
+  size_t seed = *reinterpret_cast< size_t* >( perturbationPtr );
+  srand( seed );
+
+  // Perform perturbation of the input points
+  const vector< vector< double > >& points = perturbation > 0.0 ? perturbPoints_( unperturbedPoints, perturbation )
+                                                                : unperturbedPoints;
+
+  // Get the indices of the extreme points
+  const vector< size_t >& initialPointIndices = getInitialPointIndices_( points );
+
+  // Create simplex using the extreme points
+  list< Facet > facets;
+  getInitialSimplex_( points, initialPointIndices, facets );
+
+  try {
+    // Compute the convex hull for the set of all points using the seed polytope
+    growConvexHull( points, facets );
+  }
+  catch ( invalid_argument e ) {
+    // Failed to grow the convex hull. Change perturbation and retry
+    cerr << e.what() << endl;
+    double newPerturbation = perturbation == 0.0 ? 1e-9 : 10 * perturbation;
+    return computeConvexHull( unperturbedPoints, newPerturbation );
+  }
+
+  // Assert that the facets' sets of vertices have the correct dimension
+  throwExceptionIfNotAllFacetsFullDimensional_( facets, dimension );
+
+  // Construct vector of vertex indices for the facets of the convex hull
+  vector< vector< size_t > > vertexIndices( facets.size(), vector< size_t >( dimension ) );
+  size_t fi = 0;
+  for ( FacetIt fIt = facets.begin(); fIt != facets.end(); ++fIt, ++fi ) {
+    vertexIndices[ fi ].swap( fIt->vertexIndices );
+  }
+  cerr << "Number of distance tests: " << distanceTests << endl;
+  cerr << "distance 1: " << dist1 <<  ", 2: " << dist2 << ", 3: " << dist3 << endl;
+  cerr << "isFacetVisibleFromPoint 4: " << dist4 << ", 5: " << dist5 << ", 6: " << dist6 << endl;
+  cerr << "Number of hyperplanes created: " << hyperPlanes << endl;
+  return vertexIndices;
 }
 
 void growConvexHull( const vector< vector< double > >& points,
@@ -222,54 +261,6 @@ void growConvexHull( const vector< vector< double > >& points,
 
 /* Anonymous namespace functions */
 namespace {
-vector< vector< size_t > > computeConvexHull_( const vector< vector< double > >& unperturbedPoints,
-                                               double perturbation,
-                                               size_t depth )
-{
-  // Check that the input data is correct
-  throwExceptionIfInvalidPerturbation_( perturbation, unperturbedPoints );
-
-  // Perform perturbation of the input points
-  const vector< vector< double > >& points = perturbation > 0.0 ? perturbPoints_( unperturbedPoints, perturbation )
-                                                                : unperturbedPoints;
-
-  const size_t dimension = points.front().size();
-  assert( points.size() > dimension );
-
-  // Get the indices of the extreme points
-  const vector< size_t >& initialPointIndices = getInitialPointIndices_( points );
-
-  // Create simplex using the extreme points
-  list< Facet > facets;
-  getInitialSimplex_( points, initialPointIndices, facets );
-
-  try {
-    // Compute the convex hull for the set of all points using the seed polytope
-    growConvexHull( points, facets );
-  }
-  catch ( invalid_argument e ) {
-    // Failed to grow the convex hull. Change perturbation and retry
-    cerr << e.what() << endl;
-    double newPerturbation = perturbation == 0.0 ? 1e-9 : 10 * perturbation;
-    return computeConvexHull_( unperturbedPoints, newPerturbation, depth + 1 );
-  }
-
-  // Assert that the facets' sets of vertices have the correct dimension
-  throwExceptionIfNotAllFacetsFullDimensional_( facets, dimension );
-
-  // Construct vector of vertex indices for the facets of the convex hull
-  vector< vector< size_t > > vertexIndices( facets.size(), vector< size_t >( dimension ) );
-  size_t fi = 0;
-  for ( FacetIt fIt = facets.begin(); fIt != facets.end(); ++fIt, ++fi ) {
-    vertexIndices[ fi ].swap( fIt->vertexIndices );
-  }
-  cerr << "Number of distance tests: " << distanceTests << endl;
-  cerr << "distance 1: " << dist1 <<  ", 2: " << dist2 << ", 3: " << dist3 << endl;
-  cerr << "isFacetVisibleFromPoint 4: " << dist4 << ", 5: " << dist5 << ", 6: " << dist6 << endl;
-  cerr << "Number of hyperplanes created: " << hyperPlanes << endl;
-  return vertexIndices;
-}
-
 vector< size_t > getInitialPointIndices_( const vector< vector< double > >& points )
 {
   const size_t dimension = points.size() == 0 ? 0 : points.front().size();
@@ -291,9 +282,11 @@ vector< size_t > getInitialPointIndices_( const vector< vector< double > >& poin
   return startPointIndices;
 }
 
-vector< pair< double, pair< size_t, size_t > > > getPairwiseSquaredDistances_( const vector< size_t >& indices, const vector< vector< double > >& points )
+vector< pair< double, pair< size_t, size_t > > > getPairwiseSquaredDistances_( const vector< size_t >& indices,
+                                                                               const vector< vector< double > >& points )
 {
   vector< pair< double, pair< size_t, size_t > > > distances;
+  distances.reserve( indices.size() * ( indices.size() + 1 ) / 2 );
   for ( size_t i = 0; i < indices.size(); ++i ) {
     size_t si = indices[ i ];
     const vector< double >& pointI = points[ si ];
@@ -554,7 +547,7 @@ void getVisibleFacets_( const vector< double >& apex,
 
 size_t getHashValue_( const vector< size_t >& v )
 {
-  size_t sum = 0;
+  size_t hash = 0;
   vector< size_t >::const_iterator vIt = v.begin();
   switch ( v.size() ) {
     default:
@@ -562,26 +555,26 @@ size_t getHashValue_( const vector< size_t >& v )
         size_t i2 = i * i;
         size_t i4 = i2 * i2;
         size_t i8 = i4 * i4;
-        sum += *vIt++ * i8 * i4;
+        hash += *vIt++ * i8 * i4;
       }
-    case 15: sum += *vIt++ * Power< 15, 12 >::value;
-    case 14: sum += *vIt++ * Power< 14, 12 >::value;
-    case 13: sum += *vIt++ * Power< 13, 12 >::value;
-    case 12: sum += *vIt++ * Power< 12, 12 >::value;
-    case 11: sum += *vIt++ * Power< 11, 12 >::value;
-    case 10: sum += *vIt++ * Power< 10, 12 >::value;
-    case 9:  sum += *vIt++ * Power< 9, 12 >::value;
-    case 8:  sum += *vIt++ * Power< 8, 12 >::value;
-    case 7:  sum += *vIt++ * Power< 7, 12 >::value;
-    case 6:  sum += *vIt++ * Power< 6, 12 >::value;
-    case 5:  sum += *vIt++ * Power< 5, 12 >::value;
-    case 4:  sum += *vIt++ * Power< 4, 12 >::value;
-    case 3:  sum += *vIt++ * Power< 3, 12 >::value;
-    case 2:  sum += *vIt++ * Power< 2, 12 >::value;
-    case 1:  sum += *vIt++;
+    case 15: hash += *vIt++ * Power< 15, 12 >::value;
+    case 14: hash += *vIt++ * Power< 14, 12 >::value;
+    case 13: hash += *vIt++ * Power< 13, 12 >::value;
+    case 12: hash += *vIt++ * Power< 12, 12 >::value;
+    case 11: hash += *vIt++ * Power< 11, 12 >::value;
+    case 10: hash += *vIt++ * Power< 10, 12 >::value;
+    case 9:  hash += *vIt++ * Power< 9, 12 >::value;
+    case 8:  hash += *vIt++ * Power< 8, 12 >::value;
+    case 7:  hash += *vIt++ * Power< 7, 12 >::value;
+    case 6:  hash += *vIt++ * Power< 6, 12 >::value;
+    case 5:  hash += *vIt++ * Power< 5, 12 >::value;
+    case 4:  hash += *vIt++ * Power< 4, 12 >::value;
+    case 3:  hash += *vIt++ * Power< 3, 12 >::value;
+    case 2:  hash += *vIt++ * Power< 2, 12 >::value;
+    case 1:  hash += *vIt++;
     case 0: ;
   }
-  return sum;
+  return hash;
 }
 
 void createNewFacets_( size_t apexIndex,
@@ -634,7 +627,7 @@ void createNewFacets_( size_t apexIndex,
     visibleFacets.pop_back();
   }
 
-  // Connect new facet to its neighbors
+  // Connect new facets to their neighbors
   for ( size_t hi = 0; hi < horizon.size(); ++hi ) {
     FacetIt newFacetIt = newFacets[ hi ];
     // The new facet is neighbor to its obscured parent, and vice versa
@@ -800,7 +793,8 @@ void updateOutsideSets_( const vector< vector< double > >& points,
   }
 }
 
-vector< vector< size_t > > getOutsidePointIndicesFromFacets_( const vector< FacetIt >& facets, size_t startIndex )
+vector< vector< size_t > > getOutsidePointIndicesFromFacets_( const vector< FacetIt >& facets,
+                                                              size_t startIndex )
 {
   vector< vector< size_t > > unassignedPointIndices( facets.size() - startIndex );
   for ( size_t i = startIndex; i < facets.size(); ++i ) {
@@ -833,7 +827,7 @@ double scalarProduct_( const vector< double >& a,
   double sum = 0.0;
   switch ( a.size() ) {
     default:
-      for ( ; aIt != a.end() - 15; ++aIt, ++bIt ) {
+      for ( ; aIt + 15 != a.end(); ++aIt, ++bIt ) {
         sum += *aIt * *bIt;
       }
     case 15: sum += *aIt++ * *bIt++;
@@ -842,15 +836,15 @@ double scalarProduct_( const vector< double >& a,
     case 12: sum += *aIt++ * *bIt++;
     case 11: sum += *aIt++ * *bIt++;
     case 10: sum += *aIt++ * *bIt++;
-    case 9: sum += *aIt++ * *bIt++;
-    case 8: sum += *aIt++ * *bIt++;
-    case 7: sum += *aIt++ * *bIt++;
-    case 6: sum += *aIt++ * *bIt++;
-    case 5: sum += *aIt++ * *bIt++;
-    case 4: sum += *aIt++ * *bIt++;
-    case 3: sum += *aIt++ * *bIt++;
-    case 2: sum += *aIt++ * *bIt++;
-    case 1: sum += *aIt++ * *bIt++;
+    case 9:  sum += *aIt++ * *bIt++;
+    case 8:  sum += *aIt++ * *bIt++;
+    case 7:  sum += *aIt++ * *bIt++;
+    case 6:  sum += *aIt++ * *bIt++;
+    case 5:  sum += *aIt++ * *bIt++;
+    case 4:  sum += *aIt++ * *bIt++;
+    case 3:  sum += *aIt++ * *bIt++;
+    case 2:  sum += *aIt++ * *bIt++;
+    case 1:  sum += *aIt++ * *bIt++;
     case 0: ;
   }
   return sum;
