@@ -313,7 +313,7 @@ bool testDisallowedParameters_()
   {
     vector< vector< double > > points( 10, vector< double >( 3 ) );
     double perturbation = -1e-10;
-    cout << "Convex hull of " << points.size() << " points in " << points.front().size() << "D with perturbation" << perturbation << "." << endl << endl;
+    cout << "Convex hull of " << points.size() << " points in " << points.front().size() << "D with perturbation " << perturbation << "." << endl << endl;
     bool exceptionCaught = false;
     try {
       vector< vector< size_t > > facets = computeConvexHull( points, perturbation );
@@ -327,7 +327,7 @@ bool testDisallowedParameters_()
   {
     vector< vector< double > > points( 10, vector< double >( 11 ) );
     double perturbation = 1e-10;
-    cout << "Convex hull of " << points.size() << " points in " << points.front().size() << "D with perturbation" << perturbation << "." << endl << endl;
+    cout << "Convex hull of " << points.size() << " points in " << points.front().size() << "D with perturbation " << perturbation << "." << endl << endl;
     bool exceptionCaught = false;
     try {
       vector< vector< size_t > > facets = computeConvexHull( points, perturbation );

@@ -42,6 +42,8 @@ namespace ConvexHull {
 
       // indicates whether the facet was just created
       bool isNewFacet;
+
+      bool hasObscured;
   };
 
   // Returns the vertex indices of the facets constituting the convex hull of the input points
