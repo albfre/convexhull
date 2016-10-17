@@ -32,6 +32,16 @@ Facet::Facet( const vector< size_t >& _vertexIndices ) :
   neighbors.reserve( vertexIndices.size() );
 }
 
+Facet::Facet( vector< size_t >&& _vertexIndices ) :
+  vertexIndices( move( _vertexIndices ) ),
+  visitIndex( (size_t)-1 ),
+  farthestOutsidePointDistance( 0.0 ),
+  visible( false ),
+  isNewFacet( true )
+{
+  neighbors.reserve( vertexIndices.size() );
+}
+
 typedef list< Facet >::iterator FacetIt;
 typedef list< Facet >::const_iterator FacetConstIt;
 
@@ -70,6 +80,13 @@ namespace {
     template< class T, class U >
     bool operator() ( const pair< T, U >& p1,
                       const pair< T, U >& p2 ) const { return p1.first < p2.first; } };
+
+  struct FirstSecondSecondPtrComparator {
+    template< class T, class U, class V >
+    bool operator() ( const pair< T, pair< U, V* > >& p1,
+                      const pair< T, pair< U, V* > >& p2 ) const {
+                      if ( p1.first != p2.first ) { return p1.first < p2.first; }
+                      return *p1.second.second < *p2.second.second; } };
 
   struct SecondSecondPtrComparator {
     template< class T, class U, class V >
@@ -228,8 +245,8 @@ void growConvexHull( const vector< vector< double > >& points,
   vector< FacetIt > visibleFacets;
   vector< vector< size_t > > preallocatedPeaks;
   vector< FacetIt > newFacets;
-  while ( facetsWithOutsidePoints.size() > 0 ) {
-    if ( facetsWithOutsidePoints.back()->outsideIndices.size() == 0 ||
+  while ( !facetsWithOutsidePoints.empty() ) {
+    if ( facetsWithOutsidePoints.back()->outsideIndices.empty() ||
          facetsWithOutsidePoints.back()->visible ) {
       facetsWithOutsidePoints.pop_back();
       continue;
@@ -242,7 +259,7 @@ void growConvexHull( const vector< vector< double > >& points,
 
     // Find the set of facets that are visible from the point to be added
     vector< pair< FacetIt, FacetIt > > horizon; // visible-invisible neighboring facet pairs
-    size_t newVisibleFacetsStartIndex = visibleFacets.size();
+    const size_t newVisibleFacetsStartIndex = visibleFacets.size();
     getVisibleFacets_( apex, facetIt, visibleFacets, horizon );
 
     // Get the outside points from the visible facets
@@ -599,11 +616,11 @@ void INLINE_ATTRIBUTE prepareNewFacets_( size_t apexIndex,
     vertexIndices.back() = apexIndex;
     sort( vertexIndices.begin(), vertexIndices.end() );
     if ( hi < visibleFacets.size() ) {
-      tmpNewFacets.push_back( Facet( vertexIndices ) );
+      tmpNewFacets.emplace_back( move( vertexIndices ) );
       newFacets.push_back( *( visibleFacets.end() - hi - 1 ) );
     }
     else {
-      facets.push_back( Facet( vertexIndices ) );
+      facets.emplace_back( move( vertexIndices ) );
       newFacets.push_back( facets.end() );
       --newFacets.back();
     }
@@ -611,7 +628,7 @@ void INLINE_ATTRIBUTE prepareNewFacets_( size_t apexIndex,
 
   // Reuse the space of visible facets, which are to be removed
   for ( size_t hi = 0; hi < tmpNewFacets.size(); ++hi ) {
-    *visibleFacets.back() = tmpNewFacets[ hi ];
+    swap( *visibleFacets.back(), tmpNewFacets[ hi ] );
     visibleFacets.pop_back();
   }
 
@@ -667,6 +684,7 @@ void INLINE_ATTRIBUTE connectNeighbors_( size_t apexIndex,
       }
     }
   }
+  //sort( peakHashes.begin(), peakHashes.end(), FirstSecondSecondPtrComparator() );
   sort( peakHashes.begin(), peakHashes.end(), FirstComparator() );
 
   // If more than two peaks have the same hash values, it is necessary to sort them by the full vectors
@@ -705,7 +723,7 @@ void createNewFacets_( size_t apexIndex,
                        vector< FacetIt >& newFacets,
                        vector< vector< size_t > >& preallocatedPeaks )
 {
-  assert( horizon.size() > 0 );
+  assert( !horizon.empty() );
   newFacets.clear();
   newFacets.reserve( horizon.size() );
   const size_t dimension = horizon.front().first->vertexIndices.size();
@@ -867,31 +885,6 @@ void overwritingSolveLinearSystemOfEquations_( vector< vector< double > >& A,
        for ( size_t j = k + 1; j < n; ++j ) {
          A[ i ][ j ] -= factor * A[ k ][ j ];
        }
-      /*
-      vector< double >::iterator iIt = A[ i ].begin() + k + 1;
-      vector< double >::iterator kIt = A[ k ].begin() + k + 1;
-      switch ( numElements ) {
-        case 15: *iIt++ -= factor * *kIt++;
-        case 14: *iIt++ -= factor * *kIt++;
-        case 13: *iIt++ -= factor * *kIt++;
-        case 12: *iIt++ -= factor * *kIt++;
-        case 11: *iIt++ -= factor * *kIt++;
-        case 10: *iIt++ -= factor * *kIt++;
-        case 9:  *iIt++ -= factor * *kIt++;
-        case 8:  *iIt++ -= factor * *kIt++;
-        case 7:  *iIt++ -= factor * *kIt++;
-        case 6:  *iIt++ -= factor * *kIt++;
-        case 5:  *iIt++ -= factor * *kIt++;
-        case 4:  *iIt++ -= factor * *kIt++;
-        case 3:  *iIt++ -= factor * *kIt++;
-        case 2:  *iIt++ -= factor * *kIt++;
-        case 1:  *iIt++ -= factor * *kIt++;
-        default:
-          for ( ; iIt != A[ i ].end(); ++iIt, ++kIt) {
-            *iIt -= factor * *kIt;
-          }
-      }
-      */
     }
   }
   // LU factorization completed
