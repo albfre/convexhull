@@ -207,6 +207,41 @@ bool testConvexHull3D_()
   return t.endTest();
 }
 
+bool testConvexHull4D_()
+{
+  Test t( "Computing 4D convex hull." );
+  vector< vector< double > > input( 10, vector< double >( 4 ) ); // contains a couple of additional instances of the origin
+  input[ 2 ][ 0 ] = 1.0;
+  input[ 3 ][ 1 ] = 1.0;
+  input[ 4 ][ 2 ] = 1.0;
+  input[ 5 ][ 3 ] = 1.0;
+  input[ 6 ][ 0 ] = 0.5;
+  input[ 6 ][ 1 ] = 0.5;
+  input[ 6 ][ 2 ] = -0.4;
+  input[ 6 ][ 3 ] = 0.5;
+
+  vector< vector< size_t > > expectedFacets = { { 4, 3, 2, 0 },
+                                                { 5, 4, 2, 0 },
+                                                { 4, 5, 3, 0 },
+                                                { 3, 6, 2, 0 },
+                                                { 6, 5, 2, 0 },
+                                                { 5, 6, 3, 0 },
+                                                { 6, 4, 3, 2 },
+                                                { 6, 5, 4, 2 },
+                                                { 5, 6, 4, 3 } };
+
+
+  vector< vector< size_t > > facets = computeConvexHull( input );
+  sortMatrix( expectedFacets );
+  sortMatrix( facets );
+  t.verify( expectedFacets.size(), facets.size(), "Vectors have equal size" );
+  for ( size_t i = 0; i < facets.size(); ++i ) {
+    t.verify( expectedFacets[ i ], facets[ i ], "Facets have equal vertex indices" );
+  }
+
+  return t.endTest();
+}
+
 size_t testSpeedRandom_( size_t numOfPoints, size_t dimension, size_t loop = 1, bool print = false )
 {
   srand( 123 );
@@ -246,7 +281,7 @@ size_t testSpeedUniform_()
   size_t side = 150;
   size_t dimension = 3;
   points.reserve( side * side );
-  stringstream ss;
+  //stringstream ss;
   for ( size_t i = 0; i < side; ++i ) {
     for ( size_t j = 0; j < side; ++j ) {
       vector< double > point( 3 );
@@ -254,13 +289,13 @@ size_t testSpeedUniform_()
       point[ 1 ] = double( j ) - side / 2;
       point[ 2 ] = point[ 0 ] * point[ 0 ] + point[ 1 ] * point[ 1 ];
       points.push_back( point );
-      ss << point[ 0 ] << " " << point[ 1 ] << " " << point[ 2 ] << endl;
+      //ss << point[ 0 ] << " " << point[ 1 ] << " " << point[ 2 ] << endl;
     }
   }
-  ofstream file( "points.txt" );
-  file << dimension << endl << side * side << endl;
-  file << ss.str();
-  file.close();
+  //ofstream file( "points.txt" );
+  //file << dimension << endl << side * side << endl;
+  //file << ss.str();
+  //file.close();
   cout << "Convex hull of " << points.size() << " points in " << dimension << "D." << endl << endl;
   double start = clock();
   vector< vector< size_t > > facets = computeConvexHull( points, 1e-8 );
@@ -349,6 +384,7 @@ int main( int argc, const char* argv[] )
     Test t( "Convex hull suite" );
     t.verify( testConvexHull2D_(), "Test 2D" );
     t.verify( testConvexHull3D_(), "Test 3D" );
+    t.verify( testConvexHull4D_(), "Test 4D" );
     t.verify( testConvexHullMultiple_(), "Test 1D-10D" );
     t.verify( testConvexHullHighDim_(), "Test 1D-30D" );
     t.verify( testDisallowedParameters_(), "Test disallowed parameters" );
