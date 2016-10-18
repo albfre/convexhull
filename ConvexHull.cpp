@@ -21,17 +21,6 @@
 using namespace std;
 
 namespace ConvexHull {
-
-Facet::Facet( const vector< size_t >& _vertexIndices ) :
-  vertexIndices( _vertexIndices ),
-  visitIndex( (size_t)-1 ),
-  farthestOutsidePointDistance( 0.0 ),
-  visible( false ),
-  isNewFacet( true )
-{
-  neighbors.reserve( vertexIndices.size() );
-}
-
 Facet::Facet( vector< size_t >&& _vertexIndices ) :
   vertexIndices( move( _vertexIndices ) ),
   visitIndex( (size_t)-1 ),
@@ -43,7 +32,6 @@ Facet::Facet( vector< size_t >&& _vertexIndices ) :
 }
 
 typedef list< Facet >::iterator FacetIt;
-typedef list< Facet >::const_iterator FacetConstIt;
 
 /* Anonymous namespace function declarations */
 namespace {
@@ -373,12 +361,12 @@ void getInitialSimplex_( const vector< vector< double > >& points,
 
   // Create initial simplex using the (dimension + 1) first points.
   // The facets have vertices [0, ..., dimension - 1], [1, ..., dimension], ..., [dimension, 0, ..., dimension - 2] in sortedIndices.
-  vector< size_t > vertexIndices( dimension );
   for ( size_t i = 0; i <= dimension; ++i ) {
+    vector< size_t > vertexIndices( dimension );
     for ( size_t j = 0; j < dimension; ++j ) {
       vertexIndices[ j ] = sortedIndices[ ( i + j ) % ( dimension + 1 ) ];
     }
-    facets.push_back( Facet( vertexIndices ) );
+    facets.push_back( Facet( move( vertexIndices ) ) );
     facets.back().isNewFacet = false;
   }
 
@@ -421,9 +409,9 @@ vector< double > computeOrigin_( const list< Facet >& facets )
   assert( facets.size() > 0 );
   const size_t dimension = facets.front().vertexIndices.size();
   vector< double > origin( dimension, 0.0 );
-  for ( FacetConstIt fIt = facets.begin(); fIt != facets.end(); ++fIt ) {
+  for ( const auto& f : facets ) {
     for ( size_t i = 0; i < dimension; ++i ) {
-      origin[ i ] += fIt->center[ i ];
+      origin[ i ] += f.center[ i ];
     }
   }
   for ( size_t i = 0; i < dimension; ++i ) {
@@ -505,11 +493,11 @@ void initializeOutsideSets_( const vector< vector< double > >& points,
         }
       }
       if ( maxDistance > 0.0 ) {
-        farthestFacetIt->outsideIndices.push_back( pi );
         if ( maxDistance > farthestFacetIt->farthestOutsidePointDistance ) {
           farthestFacetIt->farthestOutsidePointDistance = maxDistance;
-          farthestFacetIt->farthestOutsidePointIndex = pi;
+          farthestFacetIt->farthestOutsidePointIndex = farthestFacetIt->outsideIndices.size();
         }
+        farthestFacetIt->outsideIndices.push_back( pi );
       }
     }
   }
@@ -518,12 +506,11 @@ void initializeOutsideSets_( const vector< vector< double > >& points,
 size_t getAndEraseFarthestPointFromOutsideSet_( const vector< vector< double > >& points,
                                                 Facet& facet )
 {
-  assert( facet.outsideIndices.size() > 0 );
-  vector< size_t >::iterator farthestPointIndexIt =
-    find( facet.outsideIndices.begin(), facet.outsideIndices.end(), facet.farthestOutsidePointIndex );
-  assert( farthestPointIndexIt != facet.outsideIndices.end() );
-  facet.outsideIndices.erase( farthestPointIndexIt );
-  return facet.farthestOutsidePointIndex;
+  assert( !facet.outsideIndices.empty() );
+  const size_t farthestPointIndex = facet.outsideIndices[ facet.farthestOutsidePointIndex ];
+  facet.outsideIndices[ facet.farthestOutsidePointIndex ] = facet.outsideIndices.back();
+  facet.outsideIndices.pop_back();
+  return farthestPointIndex;
 }
 
 void getVisibleFacets_( const vector< double >& apex,
@@ -752,8 +739,8 @@ Facet* assignPointToFarthestFacet_( Facet* facet,
   bool checkNeighbors = true;
   while ( checkNeighbors ) {
     checkNeighbors = false;
-    for ( size_t ni = 0; ni < facet->neighbors.size(); ++ni ) {
-      Facet& neighbor = *( facet->neighbors[ ni ] );
+    for ( FacetIt facetIt : facet->neighbors ) {
+      Facet& neighbor = *( facetIt );
       if ( !neighbor.isNewFacet || neighbor.visitIndex == visitIndex ) {
         continue;
       }
@@ -768,11 +755,11 @@ Facet* assignPointToFarthestFacet_( Facet* facet,
     }
   }
 
-  facet->outsideIndices.push_back( pointIndex );
   if ( bestDistance > facet->farthestOutsidePointDistance ) {
     facet->farthestOutsidePointDistance = bestDistance;
-    facet->farthestOutsidePointIndex = pointIndex;
+    facet->farthestOutsidePointIndex = facet->outsideIndices.size();
   }
+  facet->outsideIndices.push_back( pointIndex );
   return facet;
 }
 
@@ -841,9 +828,8 @@ double scalarProduct_( const vector< double >& a,
                        const vector< double >& b )
 {
 
-  distanceTests++;
-  assert( a.size() == b.size() );
-  return inner_product( a.begin(), a.end(), b.begin(), 0.0 );
+  ++distanceTests;
+  return inner_product( a.cbegin(), a.cend(), b.cbegin(), 0.0 );
 }
 
 void overwritingSolveLinearSystemOfEquations_( vector< vector< double > >& A,
@@ -916,9 +902,9 @@ void overwritingSolveLinearSystemOfEquations_( vector< vector< double > >& A,
 
 void throwExceptionIfNotConvexPolytope_( const list< Facet >& facets )
 {
-  for ( FacetConstIt fIt = facets.begin(); fIt != facets.end(); ++fIt ) {
-    for ( size_t i = 0; i < fIt->neighbors.size(); ++i ) {
-      if ( isFacetVisibleFromPoint_( *fIt, fIt->neighbors[ i ]->center ) ) {
+  for ( const auto& f : facets ) {
+    for ( size_t i = 0; i < f.neighbors.size(); ++i ) {
+      if ( isFacetVisibleFromPoint_( f, f.neighbors[ i ]->center ) ) {
         throw invalid_argument( "Not a convex polytope" );
       }
     }
@@ -928,8 +914,8 @@ void throwExceptionIfNotConvexPolytope_( const list< Facet >& facets )
 void throwExceptionIfNotAllFacetsFullDimensional_( const list< Facet >& facets,
                                                    size_t dimension )
 {
-  for ( FacetConstIt fIt = facets.begin(); fIt != facets.end(); ++fIt ) {
-    if ( fIt->vertexIndices.size() != dimension ) {
+  for ( const auto& f : facets ) {
+    if ( f.vertexIndices.size() != dimension ) {
       throw invalid_argument( "All facets must be full dimensional." );
     }
   }
@@ -938,9 +924,9 @@ void throwExceptionIfNotAllFacetsFullDimensional_( const list< Facet >& facets,
 void throwExceptionIfFacetsUseNonExistingVertices_( const list< Facet >& facets,
                                                     const vector< vector< double > >& points )
 {
-  for ( FacetConstIt fIt = facets.begin(); fIt != facets.end(); ++fIt ) {
-    for ( size_t i = 0; i < fIt->vertexIndices.size(); ++i ) {
-      if ( points.size() <= fIt->vertexIndices[ i ] ) {
+  for ( const auto& f : facets ) {
+    for ( size_t i = 0; i < f.vertexIndices.size(); ++i ) {
+      if ( points.size() <= f.vertexIndices[ i ] ) {
         throw invalid_argument( "All facets must consist of existing vertices." );
       }
     }
@@ -950,8 +936,8 @@ void throwExceptionIfFacetsUseNonExistingVertices_( const list< Facet >& facets,
 void throwExceptionIfNotAllPointsHaveCorrectDimension_( const vector< vector< double > >& points,
                                                         size_t dimension )
 {
-  for ( size_t pi = 0; pi < points.size(); ++pi ) {
-    if ( points[ pi ].size() != dimension ) {
+  for ( const auto& p : points ) {
+    if ( p.size() != dimension ) {
       throw invalid_argument( "All points must have the correct dimension." );
     }
   }
