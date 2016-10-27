@@ -9,6 +9,7 @@ namespace ConvexHull {
   struct Facet {
     public:
       Facet( std::vector< size_t >&& vertexIndices );
+      Facet( const std::vector< size_t >& vertexIndices );
 
       // indices of the points that are the vertices of the facet
       std::vector< size_t > vertexIndices;
