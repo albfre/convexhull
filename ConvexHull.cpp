@@ -11,367 +11,247 @@
 /* HEADER */
 #include "ConvexHull.h"
 
-// For profiling
-#if 0
-#define INLINE_ATTRIBUTE __attribute__ ((noinline))
-#else
-#define INLINE_ATTRIBUTE
-#endif
-
-using namespace std;
-
-namespace ConvexHull {
-Facet::Facet( vector< size_t >&& _vertexIndices ) :
-  vertexIndices( move( _vertexIndices ) ),
-  visitIndex( (size_t)-1 ),
-  farthestOutsidePointDistance( 0.0 ),
-  visible( false ),
-  isNewFacet( true )
+ConvexHull::Facet::Facet(std::vector<size_t>&& _vertexIndices) :
+  vertexIndices(std::move(_vertexIndices))
 {
-  neighbors.reserve( vertexIndices.size() );
+  std::ranges::sort(vertexIndices);
+  neighbors.reserve(vertexIndices.size());
 }
 
-typedef list< Facet >::iterator FacetIt;
 
-/* Anonymous namespace function declarations */
-namespace {
-  int distanceTests;
-  int hyperPlanes;
-  vector< size_t > INLINE_ATTRIBUTE getInitialPointIndices_( const vector< vector< double > >& points );
-  void INLINE_ATTRIBUTE getInitialSimplex_( const vector< vector< double > >& points, const vector< size_t >& startPointIndices, list< Facet >& facets );
-  void INLINE_ATTRIBUTE updateFacetCenterPoints_( const vector< vector< double > >& points, list< Facet >& facets );
-  vector< double > INLINE_ATTRIBUTE computeOrigin_( const list< Facet >& facets );
-  template< template< class T, class All = std::allocator< T > > class Container, class U >
-  void INLINE_ATTRIBUTE updateFacetNormalAndOffset_( const vector< vector< double > >& points, const vector< double >& origin, Container< U >& facets, vector< vector< double > >& preallocatedA );
-  void INLINE_ATTRIBUTE initializeOutsideSets_( const vector< vector< double > >& points, list< Facet >& facets );
-  size_t INLINE_ATTRIBUTE getAndEraseFarthestPointFromOutsideSet_( const vector< vector< double > >& points, Facet& facet );
-  void INLINE_ATTRIBUTE getVisibleFacets_( const vector< double >& apex, FacetIt facetIt, vector< FacetIt >& visibleFacets, vector< pair< FacetIt, FacetIt > >& horizon );
-  void INLINE_ATTRIBUTE createNewFacets_( size_t apexIndex, const vector< pair< FacetIt, FacetIt > >& horizon, list< Facet >& facets, vector< FacetIt >& visibleFacets, vector< FacetIt >& newFacets, vector< vector< size_t > >& preallocatedPeaks );
-  void INLINE_ATTRIBUTE updateOutsideSets_( const vector< vector< double > >& points, const vector< vector< size_t > >& unassignedPointIndices, vector< FacetIt >& newFacets );
-  vector< vector< size_t > > INLINE_ATTRIBUTE getOutsidePointIndicesFromFacets_( const vector< FacetIt >& facets, size_t startIndex );
-  bool INLINE_ATTRIBUTE isFacetVisibleFromPoint_( const Facet& facet, const vector< double >& point );
-  double INLINE_ATTRIBUTE distance_( const Facet& facet, const vector< double >& point );
-  double INLINE_ATTRIBUTE scalarProduct_( const vector< double >& a, const vector< double >& b );
-  void INLINE_ATTRIBUTE overwritingSolveLinearSystemOfEquations_( vector< vector< double > >& A, vector< double >& b );
-
-  void INLINE_ATTRIBUTE throwExceptionIfNotConvexPolytope_( const list< Facet >& facets );
-  void INLINE_ATTRIBUTE throwExceptionIfNotAllFacetsFullDimensional_( const list< Facet >& facets, size_t dimension );
-  void INLINE_ATTRIBUTE throwExceptionIfFacetsUseNonExistingVertices_( const list< Facet >& facets, const vector< vector< double > >& points );
-  void INLINE_ATTRIBUTE throwExceptionIfNotAllPointsHaveCorrectDimension_( const vector< vector< double > >& points, size_t dimension );
-  void INLINE_ATTRIBUTE throwExceptionIfTooFewPoints_( const vector< vector< double > >& points );
-  void INLINE_ATTRIBUTE throwExceptionIfInvalidPerturbation_( double perturbation, const vector< vector< double > >& points );
-
-  Facet& getFacet_( Facet& f ) { return f; }
-  Facet& getFacet_( FacetIt& fIt ) { return *fIt; }
-
-  struct FirstComparator {
-    template< class T, class U >
-    bool operator() ( const pair< T, U >& p1,
-                      const pair< T, U >& p2 ) const { return p1.first < p2.first; } };
-
-  struct FirstSecondSecondPtrComparator {
-    template< class T, class U, class V >
-    bool operator() ( const pair< T, pair< U, V* > >& p1,
-                      const pair< T, pair< U, V* > >& p2 ) const {
-                      if ( p1.first != p2.first ) { return p1.first < p2.first; }
-                      return *p1.second.second < *p2.second.second; } };
-
-  struct SecondSecondPtrComparator {
-    template< class T, class U, class V >
-    bool operator() ( const pair< T, pair< U, V* > >& p1,
-                      const pair< T, pair< U, V* > >& p2 ) const { return *p1.second.second < *p2.second.second; } };
-
-  struct FarthestPointDistanceComparator {
-    bool operator() ( const FacetIt& fIt1,
-                      const FacetIt& fIt2 ) const { return fIt1->farthestOutsidePointDistance < fIt2->farthestOutsidePointDistance; } };
-
-  struct DimensionComparator {
-    DimensionComparator( size_t dimension ) : dimension_( dimension ) {}
-    bool operator() ( const vector< double >& p1, const vector< double >& p2 ) const { return p1[ dimension_ ] < p2[ dimension_ ]; }
-    private:
-      size_t dimension_;
-  };
-
-  template< size_t N, size_t P > struct Power {
-    static const size_t value = N * Power< N, P - 1 >::value;
-  };
-
-  template< size_t N > struct Power< N, 0 > {
-    static const size_t value = 1;
-  };
+ConvexHull::ConvexHull(const Points& unperturbedPoints, const double perturbation) :
+  dimension_(unperturbedPoints.empty() ? 0 : unperturbedPoints.front().size())
+{
+  powersOfTwelve_.resize(dimension_);
+  for (size_t i = 0; i < dimension_; ++i) {
+    powersOfTwelve_.at(dimension_ - i - 1) = std::pow(i + 1, 12);
+  }
+  computeConvexHull_(unperturbedPoints, perturbation);
 }
 
-vector< vector< size_t > > computeConvexHull( const vector< vector< double > >& unperturbedPoints,
-                                              double perturbation )
+const std::vector<std::vector<size_t>> ConvexHull::getVertexIndices() const
 {
-  distanceTests = 0;
-  hyperPlanes = 0;
-  // Check that the input data is correct
-  throwExceptionIfInvalidPerturbation_( perturbation, unperturbedPoints );
-  throwExceptionIfTooFewPoints_( unperturbedPoints );
-  const size_t dimension = unperturbedPoints.front().size();
-  throwExceptionIfNotAllPointsHaveCorrectDimension_( unperturbedPoints, dimension );
+  return vertexIndices_;
+}
 
+void ConvexHull::computeConvexHull_(const Points& unperturbedPoints, const double perturbation)
+{
   // Set seed to ensure deterministic behavior,
   // but use different seeds for different perturbations
-  double* perturbationPtr = &perturbation;
-  unsigned int seed = *reinterpret_cast< unsigned int* >( perturbationPtr );
-  srand( seed );
+  throwExceptionIfInvalidPerturbation_(perturbation, unperturbedPoints);
+  const auto* perturbationPtr = &perturbation;
+  const auto seed = *reinterpret_cast<const unsigned int*>(perturbationPtr);
+  srand(seed);
 
   // Perform perturbation of the input points
-  struct Point {
-    Point() {}
-    Point( const vector< double >& coordinates, size_t index ) :
-    coordinates_( &coordinates ),
-    index_( index )
-    {}
-    bool operator<( const Point& other ) const {
-      return *( this->coordinates_ ) < *( other.coordinates_ );
-    }
-
-    bool operator==( const Point& other ) const {
-      return *( this->coordinates_ ) == *( other.coordinates_ );
-    }
-
-    const vector< double >& getCoordinates() const { return *coordinates_; }
-    size_t getIndex() const { return index_; }
-
-    private:
-    const vector< double >* coordinates_;
-    size_t index_;
-  };
-
-  vector< vector< double > > points;
-  vector< Point > uniquePoints( unperturbedPoints.size() );
+  points_.clear();
+  uniquePointIndexPairs_.resize(unperturbedPoints.size());
   {
     size_t index = 0;
-    transform( unperturbedPoints.cbegin(), unperturbedPoints.cend(), uniquePoints.begin(), [&index] ( const vector< double >& p ) { return Point( p, index++ ); } );
-    sort( uniquePoints.begin(), uniquePoints.end() );
-    uniquePoints.erase( unique( uniquePoints.begin(), uniquePoints.end() ), uniquePoints.end() );
-    points.resize( uniquePoints.size() );
-    transform( uniquePoints.cbegin(), uniquePoints.cend(), points.begin(), [] ( const Point& p ) { return p.getCoordinates(); } );
-    for ( auto& v : points ) {
-      transform( v.cbegin(), v.cend(), v.begin(), [&] ( double d ) { return d + ( perturbation * rand() ) / RAND_MAX; } );
+    std::ranges::transform(unperturbedPoints, uniquePointIndexPairs_.begin(), [&index] (const auto& p) { return std::make_pair(p, index++); });
+    std::ranges::sort(uniquePointIndexPairs_);
+    uniquePointIndexPairs_.erase(std::ranges::unique(uniquePointIndexPairs_, [] (const auto& p1, const auto& p2) { return p1.first == p2.first; }).begin(), uniquePointIndexPairs_.end());
+    points_.resize(uniquePointIndexPairs_.size());
+    std::ranges::transform(uniquePointIndexPairs_, points_.begin(), [] (const auto& p) { return p.first; });
+    for (auto& v : points_) {
+      std::ranges::transform(v, v.begin(), [&] (const auto d) { return d + (perturbation * rand()) / RAND_MAX; });
     }
   }
-
-  // Get the indices of the extreme points
-  const vector< size_t >& initialPointIndices = getInitialPointIndices_( points );
+  throwExceptionIfTooFewPoints_();
+  throwExceptionIfNotAllPointsHaveCorrectDimension_();
 
   // Create simplex using the extreme points
-  list< Facet > facets;
-  getInitialSimplex_( points, initialPointIndices, facets );
+  setInitialSimplex_();
 
   try {
     // Compute the convex hull for the set of all points using the seed polytope
-    growConvexHull( points, facets );
+    growConvexHull_();
   }
-  catch ( invalid_argument e ) {
+  catch (std::invalid_argument& e) {
     // Failed to grow the convex hull. Change perturbation and retry
-    cerr << e.what() << endl;
-    double newPerturbation = perturbation == 0.0 ? 1e-9 : 10 * perturbation;
-    return computeConvexHull( unperturbedPoints, newPerturbation );
+    std::cerr << e.what() << std::endl;
+    const auto newPerturbation = perturbation == 0.0 ? 1e-9 : 10 * perturbation;
+    return computeConvexHull_(unperturbedPoints, newPerturbation);
   }
 
   // Assert that the facets' sets of vertices have the correct dimension
-  throwExceptionIfNotAllFacetsFullDimensional_( facets, dimension );
+  throwExceptionIfNotAllFacetsFullDimensional_();
 
   // Construct vector of vertex indices for the facets of the convex hull
-  vector< vector< size_t > > vertexIndices( facets.size(), vector< size_t >( dimension ) );
+  vertexIndices_ = std::vector<std::vector<size_t>>(facets_.size());
   size_t fi = 0;
-  for ( FacetIt fIt = facets.begin(); fIt != facets.end(); ++fIt, ++fi ) {
-    vertexIndices[ fi ].swap( fIt->vertexIndices );
-    transform( vertexIndices[ fi ].cbegin(), vertexIndices[ fi ].cend(), vertexIndices[ fi ].begin(), [&uniquePoints] ( size_t vi ) {
-      return uniquePoints[ vi ].getIndex();
-    } );
+  for (auto& facet : facets_) {
+    vertexIndices_[fi].swap(facet.vertexIndices);
+    std::ranges::transform(vertexIndices_[fi], vertexIndices_[fi].begin(), [&] (const auto vi) { return uniquePointIndexPairs_[vi].second; });
+    ++fi;
   }
-  cerr << "Number of distance tests: " << distanceTests << endl;
-  cerr << "Number of hyperplanes created: " << hyperPlanes << endl;
-  return vertexIndices;
+  points_.clear();
+  uniquePointIndexPairs_.clear();
+  std::cerr << "Number of distance tests: " << distanceTests << std::endl;
+  std::cerr << "Number of hyperplanes created: " << hyperPlanes << std::endl;
 }
 
-void growConvexHull( const vector< vector< double > >& points,
-                     list< Facet >& facets )
+void ConvexHull::growConvexHull_()
 {
   // Check that the input data is correct
-  throwExceptionIfTooFewPoints_( points );
-  const size_t dimension = points.front().size();
-  throwExceptionIfNotAllPointsHaveCorrectDimension_( points, dimension );
-  throwExceptionIfNotAllFacetsFullDimensional_( facets, dimension );
-  throwExceptionIfFacetsUseNonExistingVertices_( facets, points );
-
-  // The vertex indices are assumed to be sorted when new facets are created
-  for ( Facet& facet : facets ) {
-    sort( facet.vertexIndices.begin(), facet.vertexIndices.end() );
-  }
-
-  // Update the facet center points to the mean of the vertex points
-  updateFacetCenterPoints_( points, facets );
+  throwExceptionIfNotAllFacetsFullDimensional_();
+  throwExceptionIfFacetsUseNonExistingVertices_();
 
   // Compute origin as the mean of the center points of the seed facets
-  const vector< double > origin = computeOrigin_( facets );
+  updateFacetCenterPoints_();
+  const auto origin = computeOrigin_();
 
   // Compute inwards-oriented facet normals
-  vector< vector< double > > preallocatedA;
-  updateFacetNormalAndOffset_( points, origin, facets, preallocatedA );
-  throwExceptionIfNotConvexPolytope_( facets );
+  updateFacetNormalAndOffset_(origin, facets_);
+  throwExceptionIfNotConvexPolytope_();
 
   // Assign each outer point to a facet
-  initializeOutsideSets_( points, facets );
+  initializeOutsideSets_();
 
   // Create a list of all facets that have outside points
-  vector< FacetIt > facetsWithOutsidePoints;
-  facetsWithOutsidePoints.reserve( facets.size() );
-  for ( FacetIt fIt = facets.begin(); fIt != facets.end(); ++fIt ) {
-    if ( !fIt->outsideIndices.empty() ) {
-      facetsWithOutsidePoints.push_back( fIt );
+  std::vector<FacetIt> facetsWithOutsidePoints;
+  facetsWithOutsidePoints.reserve(facets_.size());
+  for (auto fIt = facets_.begin(); fIt != facets_.end(); ++fIt) {
+    if (!fIt->outsideIndices.empty()) {
+      facetsWithOutsidePoints.push_back(fIt);
     }
   }
 
   // Create new facets using the outside points
-  sort( facetsWithOutsidePoints.begin(), facetsWithOutsidePoints.end(), FarthestPointDistanceComparator() );
-  vector< FacetIt > visibleFacets;
-  vector< vector< size_t > > preallocatedPeaks;
-  vector< FacetIt > newFacets;
-  while ( !facetsWithOutsidePoints.empty() ) {
-    if ( facetsWithOutsidePoints.back()->outsideIndices.empty() ||
-         facetsWithOutsidePoints.back()->visible ) {
+  std::ranges::sort(facetsWithOutsidePoints, [] (const auto& a, const auto& b) { return a->farthestOutsidePointDistance < b->farthestOutsidePointDistance; });
+  std::vector<FacetIt> visibleFacets;
+  std::vector<FacetIt> newFacets;
+  while (!facetsWithOutsidePoints.empty()) {
+    if (facetsWithOutsidePoints.back()->outsideIndices.empty() ||
+        facetsWithOutsidePoints.back()->visible) {
       facetsWithOutsidePoints.pop_back();
       continue;
     }
-    FacetIt facetIt = facetsWithOutsidePoints.back();
+    auto facetIt = facetsWithOutsidePoints.back();
 
     // From the outside set of the current facet, find the farthest point
-    const size_t apexIndex = getAndEraseFarthestPointFromOutsideSet_( points, *facetIt );
+    const auto apexIndex = getAndEraseFarthestPointFromOutsideSet_(*facetIt);
 
     // Find the set of facets that are visible from the point to be added
-    const size_t newVisibleFacetsStartIndex = visibleFacets.size();
-    vector< pair< FacetIt, FacetIt > > horizon; // visible-invisible neighboring facet pairs
-    getVisibleFacets_( points[ apexIndex ], facetIt, visibleFacets, horizon );
+    const auto newVisibleFacetsStartIndex = visibleFacets.size();
+    std::vector<std::pair<FacetIt, FacetIt>> horizon; // visible-invisible neighboring facet pairs
+    getVisibleFacets_(points_.at(apexIndex), facetIt, visibleFacets, horizon);
 
     // Get the outside points from the visible facets
-    const vector< vector< size_t > > unassignedPointIndices = getOutsidePointIndicesFromFacets_( visibleFacets, newVisibleFacetsStartIndex );
+    std::vector<std::vector<size_t>> unassignedPointIndices(visibleFacets.size() - newVisibleFacetsStartIndex);
+    for (size_t i = 0; i < unassignedPointIndices.size(); ++i) {
+      unassignedPointIndices[i].swap(visibleFacets[newVisibleFacetsStartIndex + i]->outsideIndices);
+    }
 
     // Create new facets from the apex
     newFacets.clear();
-    createNewFacets_( apexIndex, horizon, facets, visibleFacets, newFacets, preallocatedPeaks );
+    prepareNewFacets_(apexIndex, horizon, visibleFacets, newFacets);
+    connectNeighbors_(apexIndex, horizon, visibleFacets, newFacets);
+    assert(std::ranges::all_of(newFacets, [dimension = dimension_] (const auto& newFacet) { return newFacet->neighbors.size() == dimension; }));
 
     // Update the facet normals and offsets
-    updateFacetNormalAndOffset_( points, origin, newFacets, preallocatedA );
+    updateFacetNormalAndOffset_(origin, newFacets);
 
     // Assign the points belonging to visible facets to the newly created facets
-    updateOutsideSets_( points, unassignedPointIndices, newFacets );
+    updateOutsideSets_(unassignedPointIndices, newFacets);
 
     // Add the new facets with outside points to the vector of all facets with outside points
-    for ( FacetIt newFacet : newFacets ) {
+    for (auto& newFacet : newFacets) {
       newFacet->isNewFacet = false;
       newFacet->visitIndex = (size_t)-1;
     }
-    newFacets.erase( remove_if( newFacets.begin(), newFacets.end(), [] ( const FacetIt& f ) {
-        return f->outsideIndices.empty();
-      } ), newFacets.end() );
+    std::erase_if(newFacets, [] (const FacetIt& f) { return f->outsideIndices.empty(); });
 
-    sort( newFacets.begin(), newFacets.end(), FarthestPointDistanceComparator() );
-    if ( newFacets.empty() ||
-         facetsWithOutsidePoints.empty() ||
-         newFacets.back()->farthestOutsidePointDistance > facetsWithOutsidePoints.back()->farthestOutsidePointDistance ) {
-      facetsWithOutsidePoints.insert( facetsWithOutsidePoints.end(), newFacets.begin(), newFacets.end() );
+    std::ranges::sort(newFacets, [] (const auto& a, const auto& b) { return a->farthestOutsidePointDistance < b->farthestOutsidePointDistance; });
+    if (newFacets.empty() ||
+        facetsWithOutsidePoints.empty() ||
+        newFacets.back()->farthestOutsidePointDistance > facetsWithOutsidePoints.back()->farthestOutsidePointDistance) {
+      facetsWithOutsidePoints.insert(facetsWithOutsidePoints.end(), newFacets.begin(), newFacets.end());
     }
     else {
       // facetsWithOutsidePoints.back() has farther point than newFacetsWithOutsidePoints.back()
-      newFacets.insert( newFacets.end(), facetsWithOutsidePoints.begin(), facetsWithOutsidePoints.end() );
-      facetsWithOutsidePoints.swap( newFacets );
+      newFacets.insert(newFacets.end(), facetsWithOutsidePoints.begin(), facetsWithOutsidePoints.end());
+      facetsWithOutsidePoints.swap(newFacets);
     }
   }
-  for ( const auto& v : visibleFacets ) {
-    facets.erase( v );
+  for (const auto& v : visibleFacets) {
+    facets_.erase(v);
   }
 
   // Assert that the facets constitute a convex polytope
-  updateFacetCenterPoints_( points, facets );
-  throwExceptionIfNotConvexPolytope_( facets );
+  updateFacetCenterPoints_();
+  throwExceptionIfNotConvexPolytope_();
 }
 
-/* Anonymous namespace functions */
-namespace {
-vector< size_t > getInitialPointIndices_( const vector< vector< double > >& points )
+std::vector<size_t> ConvexHull::getInitialPointIndices_(const Points& points)
 {
-  const size_t dimension = points.size() == 0 ? 0 : points.front().size();
-  set< size_t > startPointIndexSet;
-  for ( size_t d = 0; d < dimension; ++d ) {
-    startPointIndexSet.insert( min_element( points.begin(), points.end(), DimensionComparator( d ) ) - points.begin() );
-    startPointIndexSet.insert( max_element( points.begin(), points.end(), DimensionComparator( d ) ) - points.begin() );
+  const auto dimension = points.size() > 0 ? points[0].size() : 0;
+  std::set<size_t> startPointIndexSet;
+  for (size_t d = 0; d < dimension; ++d) {
+    const auto [min, max] = std::ranges::minmax_element(points, [d] (const auto& a, const auto& b) { return a[d] < b[d]; });
+    startPointIndexSet.insert(std::ranges::distance(points.cbegin(), min));
+    startPointIndexSet.insert(std::ranges::distance(points.cbegin(), max));
   }
-  size_t i = 0;
-  while ( startPointIndexSet.size() <= dimension && i < points.size()) {
-    startPointIndexSet.insert( i );
-    ++i;
+  for (size_t i = 0; startPointIndexSet.size() <= dimension && i < points.size(); ++i) {
+    startPointIndexSet.insert(i);
   }
-  return vector< size_t >( startPointIndexSet.begin(), startPointIndexSet.end() );
+  return std::vector<size_t>(startPointIndexSet.cbegin(), startPointIndexSet.cend());
 }
 
-vector< pair< double, pair< size_t, size_t > > > getPairwiseSquaredDistances_( const vector< size_t >& indices,
-                                                                               const vector< vector< double > >& points )
+std::vector<std::tuple<double, size_t, size_t>> ConvexHull::getPairwiseSquaredDistances_(const std::vector<size_t>& indices, const Points& points)
 {
-  vector< pair< double, pair< size_t, size_t > > > distances;
-  distances.reserve( indices.size() * ( indices.size() + 1 ) / 2 );
-  for ( size_t i = 0; i < indices.size(); ++i ) {
-    size_t si = indices[ i ];
-    const vector< double >& pointI = points[ si ];
-    for ( size_t j = i + 1; j < indices.size(); ++j ) {
-      size_t sj = indices[ j ];
-      const vector< double >& pointJ = points[ sj ];
-      double distance = 0.0;
-      for ( size_t k = 0; k < pointI.size(); ++k ) {
-        double difference = pointI[ k ] - pointJ[ k ];
+  std::vector<std::tuple<double, size_t, size_t>> distances;
+  distances.reserve(indices.size() * (indices.size() + 1) / 2);
+  for (size_t i = 0; i < indices.size(); ++i) {
+    const auto si = indices[i];
+    const auto& pointI = points.at(si);
+    for (size_t j = i + 1; j < indices.size(); ++j) {
+      const auto sj = indices[j];
+      const auto& pointJ = points.at(sj);
+      auto distance = 0.0;
+      for (size_t k = 0; k < pointI.size(); ++k) {
+        const auto difference = pointI[k] - pointJ[k];
         distance += difference * difference;
       }
-      distances.push_back( make_pair( distance, make_pair( si, sj ) ) );
+      distances.push_back({distance, si, sj});
     }
   }
-  sort( distances.begin(), distances.end() );
+  std::ranges::sort(distances);
   return distances;
 }
 
-void getInitialSimplex_( const vector< vector< double > >& points,
-                         const vector< size_t >& startPointIndices,
-                         list< Facet >& facets )
+void ConvexHull::setInitialSimplex_()
 {
-  facets.clear();
-  const size_t dimension = points.size() == 0 ? 0 : points.front().size();
-  if ( points.size() <= dimension ) {
-    throw invalid_argument( "Too few input points to construct convex hull." );
-  }
+  facets_.clear();
+  const auto startPointIndices = getInitialPointIndices_(points_);
+  const auto distances = getPairwiseSquaredDistances_(startPointIndices, points_);
 
-  vector< pair< double, pair< size_t, size_t > > > distances = getPairwiseSquaredDistances_( startPointIndices, points );
-
-  vector< size_t > sortedIndices;
-  sortedIndices.reserve( dimension + 1 );
-  while ( sortedIndices.size() <= dimension ) {
-    pair< size_t, size_t > indices = distances.back().second;
-    distances.pop_back();
-    if ( find( sortedIndices.begin(), sortedIndices.end(), indices.first ) == sortedIndices.end() ) {
-      sortedIndices.push_back( indices.first );
+  std::vector<size_t> indices;
+  indices.reserve(dimension_ + 1);
+  for (size_t di = distances.size() - 1; indices.size() <= dimension_; --di) {
+    const auto [_, i, j] = distances.at(di);
+    if (std::ranges::find(indices, i) == indices.end()) {
+      indices.push_back(i);
     }
-    if ( find( sortedIndices.begin(), sortedIndices.end(), indices.second ) == sortedIndices.end() ) {
-      sortedIndices.push_back( indices.second );
+    if (std::ranges::find(indices, j) == indices.end() ) {
+      indices.push_back(j);
     }
   }
 
   // Create initial simplex using the (dimension + 1) first points.
   // The facets have vertices [0, ..., dimension - 1], [1, ..., dimension], ..., [dimension, 0, ..., dimension - 2] in sortedIndices.
-  for ( size_t i = 0; i <= dimension; ++i ) {
-    vector< size_t > vertexIndices( dimension );
-    for ( size_t j = 0; j < dimension; ++j ) {
-      vertexIndices[ j ] = sortedIndices[ ( i + j ) % ( dimension + 1 ) ];
+  for (size_t i = 0; i <= dimension_; ++i) {
+    std::vector<size_t> vertexIndices(dimension_);
+    for (size_t j = 0; j < dimension_; ++j) {
+      vertexIndices[j] = indices[(i + j) % (dimension_ + 1)];
     }
-    facets.push_back( Facet( move( vertexIndices ) ) );
-    facets.back().isNewFacet = false;
+    facets_.push_back(Facet(std::move(vertexIndices)));
+    facets_.back().isNewFacet = false;
   }
 
   // Update the facets' neighbors
-  for ( FacetIt fIt1 = facets.begin(); fIt1 != facets.end(); ++fIt1 ) {
-    for ( FacetIt fIt2 = facets.begin(); fIt2 != facets.end(); ++fIt2 ) {
+  for ( auto fIt1 = facets_.begin(); fIt1 != facets_.end(); ++fIt1 ) {
+    for ( auto fIt2 = facets_.begin(); fIt2 != facets_.end(); ++fIt2 ) {
       if ( fIt1 != fIt2 ) {
         fIt1->neighbors.push_back( fIt2 );
       }
@@ -379,372 +259,277 @@ void getInitialSimplex_( const vector< vector< double > >& points,
   }
 }
 
-void updateFacetCenterPoints_( const vector< vector< double > >& points,
-                               list< Facet >& facets )
+void ConvexHull::updateFacetCenterPoints_()
 {
-  assert( !points.empty() );
-  const size_t dimension = points.front().size();
-  const double oneOverDimension = 1.0 / dimension;
-  for ( Facet& f : facets ) {
-    vector< double >& center = f.center;
-    if ( center.size() == dimension ) {
+  const auto oneOverDimension = 1.0 / dimension_;
+  for (auto& f : facets_) {
+    auto& center = f.center;
+    if (center.size() == dimension_) {
       continue;
     }
-    center.assign( dimension, 0.0 );
-    for ( size_t vi : f.vertexIndices ) {
-      const vector< double >& point = points[ vi ];
-      for ( size_t d = 0; d < dimension; ++d ) {
-        center[ d ] += point[ d ];
-      }
+    center.assign(dimension_, 0.0);
+    for (const auto& vi : f.vertexIndices) {
+      std::ranges::transform(center, points_.at(vi), center.begin(), std::plus{});
     }
-    for ( size_t d = 0; d < dimension; ++d ) {
-      center[ d ] *= oneOverDimension;
-    }
+    std::ranges::transform(center, center.begin(), [oneOverDimension] (const auto& c) { return c * oneOverDimension; });
   }
 }
 
-vector< double > computeOrigin_( const list< Facet >& facets )
+std::vector<double> ConvexHull::computeOrigin_() const
 {
-  assert( !facets.empty() );
-  const size_t dimension = facets.front().vertexIndices.size();
-  vector< double > origin( dimension, 0.0 );
-  for ( const auto& f : facets ) {
-    for ( size_t i = 0; i < dimension; ++i ) {
-      origin[ i ] += f.center[ i ];
-    }
+  assert(!facets_.empty());
+  std::vector<double> origin(dimension_, 0.0);
+  for (const auto& f : facets_) {
+    std::ranges::transform(origin, f.center, origin.begin(), std::plus{});
   }
-  for ( size_t i = 0; i < dimension; ++i ) {
-    origin[ i ] /= facets.size();
-  }
+  std::ranges::transform(origin, origin.begin(), [d = facets_.size()] (const auto& x) { return x / d; });
   return origin;
 }
 
-template< template< class T, class All = std::allocator< T > > class Container, class U >
-void updateFacetNormalAndOffset_( const vector< vector< double > >& points,
-                                  const vector< double >& origin,
-                                  Container< U >& facets,
-                                  vector< vector< double > >& preallocatedA )
+template<template<class T, class All = std::allocator<T>> class Container, class U>
+void ConvexHull::updateFacetNormalAndOffset_(const Point& origin, Container<U>& facets)
 {
-  assert( !points.empty() );
-  const size_t dimension = points.front().size();
-
-  vector< vector< double > >& A = preallocatedA;
-  A.resize( dimension );
-  for ( size_t i = 0; i < dimension; ++i ) {
-    A[ i ].resize( dimension );
+  assert(!points_.empty());
+  auto& A = preallocatedA_;
+  A.resize(dimension_);
+  for (auto& a : A) {
+    a.resize(dimension_);
   }
-  for ( auto& fIt : facets ) {
-    Facet& facet = getFacet_( fIt );
+  for (auto& fIt : facets) {
+    auto& facet = getFacet_(fIt);
+    const auto& firstPoint = points_.at(facet.vertexIndices.front());
 
-    assert( facet.vertexIndices.size() == dimension );
-    const vector< double >& firstPoint = points[ facet.vertexIndices.front() ];
-
-    for ( size_t i = 0; i + 1 < dimension; ++i ) {
-      for ( size_t j = 0; j < dimension; ++j ) {
-        A[ i ][ j ] = points[ facet.vertexIndices[ i + 1 ] ][ j ] - firstPoint[ j ];
+    for (size_t i = 0; i + 1 < dimension_; ++i) {
+      for (size_t j = 0; j < dimension_; ++j) {
+        A[i][j] = points_[facet.vertexIndices[i + 1]][j] - firstPoint[j];
       }
     }
-    vector< double >& b = facet.normal;
-    b.assign( dimension, 0.0 );
+    auto& b = facet.normal;
+    b.assign(dimension_, 0.0);
     b.back() = 1.0;
     A.back() = b;
 
     // Solve A x = b
-    overwritingSolveLinearSystemOfEquations_( A, b );
-    double absSum = 0.0;
-    for ( double bi : b ) {
-      absSum += fabs( bi );
-    }
-    absSum = 1.0 / absSum;
+    overwritingSolveLinearSystemOfEquations_(A, b);
+    const auto absSum = 1.0 / std::accumulate(b.cbegin(), b.cend(), 0.0, [](const auto s, const auto& bi) { return s + fabs(bi); });
+    std::ranges::transform(b, b.begin(), [absSum] (const auto& bi) { return bi * absSum; });
 
-    for ( double& bi : b ) {
-      bi *= absSum;
-    }
-
-    facet.offset = scalarProduct_( facet.normal, points[ facet.vertexIndices.front() ] );
+    facet.offset = scalarProduct_(facet.normal, points_.at(facet.vertexIndices.front()));
     hyperPlanes++;
 
     // Orient normal inwards
-    if ( isFacetVisibleFromPoint_( facet, origin ) ) {
-      transform( facet.normal.cbegin(), facet.normal.cend(), facet.normal.begin(), [] ( double d ) { return -d; } );
+    if (isFacetVisibleFromPoint_(facet, origin)) {
+      std::ranges::transform(facet.normal, facet.normal.begin(), [] (const auto d) { return -d; });
       facet.offset = -facet.offset;
     }
   }
 }
 
-void initializeOutsideSets_( const vector< vector< double > >& points,
-                             list< Facet >& facets )
+void ConvexHull::initializeOutsideSets_()
 {
-  set< size_t > vertexIndices;
-  for ( FacetIt fIt = facets.begin(); fIt != facets.end(); ++fIt ) {
-    vertexIndices.insert( fIt->vertexIndices.begin(), fIt->vertexIndices.end() );
+  std::set<size_t> vertexIndices;
+  for (const auto& facet : facets_) {
+    vertexIndices.insert(facet.vertexIndices.begin(), facet.vertexIndices.end());
   }
-  for ( size_t pi = 0; pi < points.size(); ++pi ) {
-    if ( vertexIndices.find( pi ) == vertexIndices.end() ) {
-      const vector< double >& point = points[ pi ];
+  for (size_t pi = 0; pi < points_.size(); ++pi) {
+    if (vertexIndices.find(pi) == vertexIndices.end()) {
+      const auto& point = points_[pi];
       FacetIt farthestFacetIt;
-      double maxDistance = 0.0;
-      for ( FacetIt fIt = facets.begin(); fIt != facets.end(); ++fIt ) {
-        const double distance = distance_( *fIt, point );
-        if ( distance > maxDistance ) {
+      auto maxDistance = 0.0;
+      for (FacetIt fIt = facets_.begin(); fIt != facets_.end(); ++fIt) {
+        const auto distance = distance_(*fIt, point);
+        if (distance > maxDistance) {
           maxDistance = distance;
           farthestFacetIt = fIt;
         }
       }
-      if ( maxDistance > 0.0 ) {
-        if ( maxDistance > farthestFacetIt->farthestOutsidePointDistance ) {
+      if (maxDistance > 0.0) {
+        if (maxDistance > farthestFacetIt->farthestOutsidePointDistance) {
           farthestFacetIt->farthestOutsidePointDistance = maxDistance;
           farthestFacetIt->farthestOutsidePointIndex = farthestFacetIt->outsideIndices.size();
         }
-        farthestFacetIt->outsideIndices.push_back( pi );
+        farthestFacetIt->outsideIndices.push_back(pi);
       }
     }
   }
 }
 
-size_t getAndEraseFarthestPointFromOutsideSet_( const vector< vector< double > >& points,
-                                                Facet& facet )
+size_t ConvexHull::getAndEraseFarthestPointFromOutsideSet_(Facet& facet)
 {
-  assert( !facet.outsideIndices.empty() );
-  const size_t farthestPointIndex = facet.outsideIndices[ facet.farthestOutsidePointIndex ];
-  facet.outsideIndices[ facet.farthestOutsidePointIndex ] = facet.outsideIndices.back();
+  const auto farthestPointIndex = facet.outsideIndices.at(facet.farthestOutsidePointIndex);
+  facet.outsideIndices.at(facet.farthestOutsidePointIndex) = facet.outsideIndices.back();
   facet.outsideIndices.pop_back();
   return farthestPointIndex;
 }
 
-void getVisibleFacets_( const vector< double >& apex,
-                        FacetIt facetIt,
-                        vector< FacetIt >& visibleFacets,
-                        vector< pair< FacetIt, FacetIt > >& horizon )
+void ConvexHull::getVisibleFacets_(const Point& apex,
+                                   FacetIt facetIt,
+                                   std::vector<FacetIt>& visibleFacets,
+                                   std::vector<std::pair<FacetIt, FacetIt>>& horizon) const
 {
   facetIt->visible = true;
   facetIt->visitIndex = 0;
-  size_t startIndex = visibleFacets.size();
-  visibleFacets.push_back( facetIt );
-  for ( size_t vi = startIndex; vi < visibleFacets.size(); ++vi ) {
-    FacetIt visibleFacetIt = visibleFacets[ vi ];
-    const Facet& visibleFacet = *visibleFacetIt;
-    for ( FacetIt neighborIt : visibleFacet.neighbors ) {
-      Facet& neighbor = *neighborIt;
+  auto startIndex = visibleFacets.size();
+  visibleFacets.push_back(facetIt);
+  for (size_t vi = startIndex; vi < visibleFacets.size(); ++vi) {
+    auto visibleFacetIt = visibleFacets.at(vi);
+    const auto& visibleFacet = *visibleFacetIt;
+    for (auto neighborIt : visibleFacet.neighbors) {
+      auto& neighbor = *neighborIt;
 
-      if ( neighbor.visitIndex != 0 ) {
-        if ( isFacetVisibleFromPoint_( neighbor, apex ) ) {
-          visibleFacets.push_back( neighborIt );
+      if (neighbor.visitIndex != 0) {
+        if (isFacetVisibleFromPoint_(neighbor, apex)) {
+          visibleFacets.push_back(neighborIt);
           neighbor.visible = true;
         }
       }
 
-      if ( !neighbor.visible ) {
-        horizon.push_back( make_pair( visibleFacetIt, neighborIt ) );
+      if (!neighbor.visible) {
+        horizon.push_back({visibleFacetIt, neighborIt});
       }
       neighbor.visitIndex = 0;
     }
   }
 }
 
-size_t INLINE_ATTRIBUTE getHashValue_( const vector< size_t >& v )
+void ConvexHull::prepareNewFacets_(const size_t apexIndex,
+                                   const std::vector<std::pair<FacetIt, FacetIt>>& horizon,
+                                   std::vector<FacetIt>& visibleFacets,
+                                   std::vector<FacetIt>& newFacets)
 {
-  size_t hash = 0;
-  vector< size_t >::const_iterator vIt = v.begin();
-  switch ( v.size() ) {
-    default:
-      for ( size_t i = v.size(); i > 15; --i ) {
-        size_t i2 = i * i;
-        size_t i4 = i2 * i2;
-        size_t i8 = i4 * i4;
-        hash += *vIt++ * i8 * i4;
-      }
-    case 15: hash += *vIt++ * Power< 15, 12 >::value;
-    case 14: hash += *vIt++ * Power< 14, 12 >::value;
-    case 13: hash += *vIt++ * Power< 13, 12 >::value;
-    case 12: hash += *vIt++ * Power< 12, 12 >::value;
-    case 11: hash += *vIt++ * Power< 11, 12 >::value;
-    case 10: hash += *vIt++ * Power< 10, 12 >::value;
-    case 9:  hash += *vIt++ * Power< 9, 12 >::value;
-    case 8:  hash += *vIt++ * Power< 8, 12 >::value;
-    case 7:  hash += *vIt++ * Power< 7, 12 >::value;
-    case 6:  hash += *vIt++ * Power< 6, 12 >::value;
-    case 5:  hash += *vIt++ * Power< 5, 12 >::value;
-    case 4:  hash += *vIt++ * Power< 4, 12 >::value;
-    case 3:  hash += *vIt++ * Power< 3, 12 >::value;
-    case 2:  hash += *vIt++ * Power< 2, 12 >::value;
-    case 1:  hash += *vIt++;
-    case 0: ;
-  }
-  return hash;
-}
-
-void INLINE_ATTRIBUTE prepareNewFacets_( size_t apexIndex,
-                                         const vector< pair< FacetIt, FacetIt > >& horizon,
-                                         list< Facet >& facets,
-                                         vector< FacetIt >& visibleFacets,
-                                         vector< FacetIt >& newFacets )
-{
-  vector< Facet > tmpNewFacets;
-  tmpNewFacets.reserve( min( horizon.size(), visibleFacets.size() ) );
-  const size_t dimension = horizon.front().first->vertexIndices.size();
-  for ( size_t hi = 0; hi < horizon.size(); ++hi ) {
-    const FacetIt visibleFacetIt = horizon[ hi ].first;
-    const FacetIt obscuredFacetIt = horizon[ hi ].second;
-    assert( visibleFacetIt->visible );
-    assert( !obscuredFacetIt->visible );
+  std::vector<Facet> tmpNewFacets;
+  newFacets.reserve(horizon.size());
+  tmpNewFacets.reserve(std::min(horizon.size(), visibleFacets.size()));
+  for (size_t hi = 0; hi < horizon.size(); ++hi) {
+    const auto [visibleFacetIt, obscuredFacetIt] = horizon[hi];
+    assert(visibleFacetIt->visible);
+    assert(!obscuredFacetIt->visible);
 
     // The new facet has the joint vertices of its parent, plus the index of the apex
-    assert( find( visibleFacetIt->vertexIndices.begin(), visibleFacetIt->vertexIndices.end(), apexIndex ) == visibleFacetIt->vertexIndices.end() );
-    assert( find( obscuredFacetIt->vertexIndices.begin(), obscuredFacetIt->vertexIndices.end(), apexIndex ) == obscuredFacetIt->vertexIndices.end() );
-    vector< size_t > vertexIndices( dimension );
-    vector< size_t >::const_iterator it =
-      set_intersection( visibleFacetIt->vertexIndices.begin(), visibleFacetIt->vertexIndices.end(),
-                        obscuredFacetIt->vertexIndices.begin(), obscuredFacetIt->vertexIndices.end(),
-                        vertexIndices.begin() );
-    assert( size_t( it - vertexIndices.begin() + 1 ) == dimension );
+    assert(std::ranges::find(visibleFacetIt->vertexIndices, apexIndex) == visibleFacetIt->vertexIndices.end());
+    assert(std::ranges::find(obscuredFacetIt->vertexIndices, apexIndex) == obscuredFacetIt->vertexIndices.end());
+    std::vector<size_t> vertexIndices(dimension_);
+    const auto result = std::ranges::set_intersection(visibleFacetIt->vertexIndices, obscuredFacetIt->vertexIndices, vertexIndices.begin());
+    assert(size_t(std::distance(vertexIndices.begin(), result.out) + 1) == dimension_);
     vertexIndices.back() = apexIndex;
-    sort( vertexIndices.begin(), vertexIndices.end() );
-    if ( hi < visibleFacets.size() ) {
-      tmpNewFacets.emplace_back( move( vertexIndices ) );
-      newFacets.push_back( *( visibleFacets.end() - hi - 1 ) );
+    if (hi < visibleFacets.size()) {
+      tmpNewFacets.emplace_back(std::move(vertexIndices));
+      newFacets.push_back(*(visibleFacets.end() - hi - 1));
     }
     else {
-      facets.emplace_back( move( vertexIndices ) );
-      newFacets.push_back( facets.end() );
+      facets_.emplace_back(std::move(vertexIndices));
+      newFacets.push_back(facets_.end());
       --newFacets.back();
     }
   }
 
   // Reuse the space of visible facets, which are to be removed
-  for ( size_t hi = 0; hi < tmpNewFacets.size(); ++hi ) {
-    *visibleFacets.back() = tmpNewFacets[ hi ];
+  for (auto& facet : tmpNewFacets) {
+    *visibleFacets.back() = facet;
     visibleFacets.pop_back();
   }
 
   // Connect new facets to their neighbors
-  for ( size_t hi = 0; hi < horizon.size(); ++hi ) {
-    FacetIt newFacetIt = newFacets[ hi ];
+  for (size_t hi = 0; hi < horizon.size(); ++hi) {
+    auto newFacetIt = newFacets[hi];
     // The new facet is neighbor to its obscured parent, and vice versa
-    const FacetIt visibleFacetIt = horizon[ hi ].first;
-    FacetIt obscuredFacetIt = horizon[ hi ].second;
-    vector< FacetIt >::iterator fItIt = find( obscuredFacetIt->neighbors.begin(), obscuredFacetIt->neighbors.end(), visibleFacetIt );
-    assert( fItIt != obscuredFacetIt->neighbors.end() );
+    auto [visibleFacetIt, obscuredFacetIt] = horizon[hi];
+    auto fItIt = std::ranges::find(obscuredFacetIt->neighbors, visibleFacetIt);
+    assert(fItIt != obscuredFacetIt->neighbors.end());
     *fItIt = newFacetIt;
     obscuredFacetIt->visitIndex = (size_t)-1;
-    newFacetIt->neighbors.push_back( obscuredFacetIt );
+    newFacetIt->neighbors.push_back(obscuredFacetIt);
   }
 }
 
-void INLINE_ATTRIBUTE connectNeighbors_( size_t apexIndex,
-                                         const vector< pair< FacetIt, FacetIt > >& horizon,
-                                         list< Facet >& facets,
-                                         vector< FacetIt >& visibleFacets,
-                                         vector< FacetIt >& newFacets,
-                                         vector< vector< size_t > >& preallocatedPeaks,
-                                         vector< pair< size_t, pair< FacetIt, vector< size_t >* > > >& peakHashes )
+void ConvexHull::connectNeighbors_(const size_t apexIndex,
+                                   const std::vector<std::pair< FacetIt, FacetIt>>& horizon,
+                                   std::vector<FacetIt>& visibleFacets,
+                                   std::vector<FacetIt>& newFacets)
 {
-  const size_t dimension = horizon.front().first->vertexIndices.size();
-  vector< vector< size_t > >& peaks = preallocatedPeaks;
-  const size_t numOfPeaks = horizon.size() * ( dimension - 1 );
-  peaks.resize( numOfPeaks, vector< size_t >( dimension > 1 ? dimension - 2 : 0 ) );
+  auto& peaks = preallocatedPeaks_;
+  auto& peakHashes = preallocatedPeakHashes_;
+  const auto numOfPeaks = horizon.size() * (dimension_ - 1);
+  peaks.resize(numOfPeaks, std::vector<size_t>(dimension_ > 1 ? dimension_ - 2 : 0));
   peakHashes.clear();
-  peakHashes.reserve( numOfPeaks );
+  peakHashes.reserve(numOfPeaks);
 
   size_t peakIndex = 0;
-  for ( size_t ni = 0; ni < newFacets.size(); ++ni ) {
-    FacetIt& newFacetIt = newFacets[ ni ];
-    vector< size_t >::const_iterator itStart = newFacetIt->vertexIndices.begin();
-    vector< size_t >::const_iterator itEnd = newFacetIt->vertexIndices.end();
-    for ( size_t i : newFacetIt->vertexIndices ) {
-      if ( i != apexIndex ) {
-        vector< size_t >& peak = peaks[ peakIndex ];
+  for (auto& newFacetIt : newFacets) {
+    const auto& vertexIndices = newFacetIt->vertexIndices;
+    for (const auto& i : vertexIndices) {
+      if (i != apexIndex) {
+        auto& peak = peaks.at(peakIndex);
         size_t pi = 0;
-        for ( size_t j : newFacetIt->vertexIndices ) {
-          if ( i != j && j != apexIndex ) {
-            peak[ pi++ ] = j;
+        for (const auto& j : vertexIndices) {
+          if (i != j && j != apexIndex) {
+            peak.at(pi++) = j;
           }
         }
-        // The vertexIndices are already sorted, so no need to sort them here.
-        // If the algorithm is changed to use non-sorted vertices, add the following line:
-        // sort( peaks[ peakIndex ].begin(), peaks[ peakIndex ].end() );
-        const size_t hashVal = getHashValue_( peak );
-        peakHashes.push_back( make_pair( hashVal, make_pair( newFacetIt, &peak ) ) );
+        // The vertexIndices are already sorted, so no need to sort peak here.
+        const auto hashVal = std::inner_product(peak.cbegin(), peak.cend(), powersOfTwelve_.cbegin(), static_cast<size_t>(0));
+        peakHashes.push_back({hashVal, &peak, newFacetIt});
         ++peakIndex;
       }
     }
   }
-  //sort( peakHashes.begin(), peakHashes.end(), FirstSecondSecondPtrComparator() );
-  sort( peakHashes.begin(), peakHashes.end(), FirstComparator() );
+  /*
+  std::ranges::sort(peakHashes, [] (const auto& a, const auto& b) {
+    const auto& [hash1, peak1, facetIt1] = a;
+    const auto& [hash2, peak2, facetIt2] = b;
+    return hash1 != hash2 ? hash1 < hash2 : *peak1 < *peak2;
+  });
+  */
 
+  std::ranges::sort(peakHashes, [] (const auto& a, const auto& b) { return std::get<0>(a) < std::get<0>(b); });
   // If more than two peaks have the same hash values, it is necessary to sort them by the full vectors
-  for ( size_t i = 0; i < peakHashes.size(); ) {
+  for (size_t i = 0; i < peakHashes.size();) {
+    const auto iVal = std::get<0>(peakHashes[i]);
     size_t j = i + 1;
-    while ( j < peakHashes.size() && peakHashes[ i ].first == peakHashes[ j ].first ) {
+    while (j < peakHashes.size() && iVal == std::get<0>(peakHashes[j])) {
       ++j;
     }
-    if ( j > i + 2 ) {
+    if (j > i + 2) {
       // More than two peaks have the same hash value
-      sort( peakHashes.begin() + i, peakHashes.begin() + j, SecondSecondPtrComparator() );
+      std::sort(peakHashes.begin() + i, peakHashes.begin() + j,
+                [] (const auto& a, const auto& b) { return *std::get<1>(a) < *std::get<1>(b); });
     }
     i = j;
   }
 
   // Update neighbors
-  for ( size_t ri = 0; ri + 1 < peakHashes.size(); ri += 2 ) {
-    FacetIt firstFacetIt = peakHashes[ ri ].second.first;
-    FacetIt secondFacetIt = peakHashes[ ri + 1 ].second.first;
-    const auto& hash1 = peakHashes[ ri ].first;
-    const auto& hash2 = peakHashes[ ri + 1 ].first;
-    const vector< size_t >& peak1 = *peakHashes[ ri ].second.second;
-    const vector< size_t >& peak2 = *peakHashes[ ri + 1 ].second.second;
-    if ( hash1 != hash2 && peak1 != peak2 ) {
-      throw invalid_argument( "Peaks must occur in pairs." );
+  for (size_t ri = 0; ri + 1 < peakHashes.size(); ri += 2) {
+    const auto& [hash1, peak1, facetIt1] = peakHashes[ri];
+    const auto& [hash2, peak2, facetIt2] = peakHashes[ri + 1];
+
+    if ( hash1 != hash2 && *peak1 != *peak2 ) {
+      throw std::invalid_argument("Peaks must occur in pairs.");
     }
-    firstFacetIt->neighbors.push_back( secondFacetIt );
-    secondFacetIt->neighbors.push_back( firstFacetIt );
+    facetIt1->neighbors.push_back(facetIt2);
+    facetIt2->neighbors.push_back(facetIt1);
   }
 }
 
-void createNewFacets_( size_t apexIndex,
-                       const vector< pair< FacetIt, FacetIt > >& horizon,
-                       list< Facet >& facets,
-                       vector< FacetIt >& visibleFacets,
-                       vector< FacetIt >& newFacets,
-                       vector< vector< size_t > >& preallocatedPeaks )
-{
-  assert( !horizon.empty() );
-  newFacets.clear();
-  newFacets.reserve( horizon.size() );
-  const size_t dimension = horizon.front().first->vertexIndices.size();
-
-  // Construct new facets
-  prepareNewFacets_( apexIndex, horizon, facets, visibleFacets, newFacets );
-
-  // Defining peakHashes here leads to faster solve times for some problems
-  vector< pair< size_t, pair< FacetIt, vector< size_t >* > > > peakHashes;
-  connectNeighbors_( apexIndex, horizon, facets, visibleFacets, newFacets, preallocatedPeaks, peakHashes );
-
-  for ( const FacetIt& newFacet : newFacets ) {
-    assert( newFacet->neighbors.size() == dimension );
-  }
-}
-
-Facet* assignPointToFarthestFacet_( Facet* facet,
-                                    double bestDistance,
-                                    size_t pointIndex,
-                                    const vector< double >& point,
-                                    size_t visitIndex )
+ConvexHull::Facet* ConvexHull::assignPointToFarthestFacet_(Facet* facet,
+                                                           double bestDistance,
+                                                           const size_t pointIndex,
+                                                           const Point& point,
+                                                           const size_t visitIndex) const
 {
   // Found a facet for which the point is an outside point
   // Recursively check whether its neighbors are even farther
   facet->visitIndex = visitIndex;
-  bool checkNeighbors = true;
-  while ( checkNeighbors ) {
+  auto checkNeighbors = true;
+  while (checkNeighbors) {
     checkNeighbors = false;
-    for ( FacetIt facetIt : facet->neighbors ) {
-      Facet& neighbor = *( facetIt );
-      if ( !neighbor.isNewFacet || neighbor.visitIndex == visitIndex ) {
+    for (auto& facetIt : facet->neighbors) {
+      auto& neighbor = *facetIt;
+      if (!neighbor.isNewFacet || neighbor.visitIndex == visitIndex) {
         continue;
       }
       neighbor.visitIndex = visitIndex;
-      const double distance = distance_( neighbor, point );
-      if ( distance > bestDistance ) {
+      const auto distance = distance_(neighbor, point);
+      if (distance > bestDistance) {
         bestDistance = distance;
         facet = &neighbor;
         checkNeighbors = true;
@@ -753,44 +538,42 @@ Facet* assignPointToFarthestFacet_( Facet* facet,
     }
   }
 
-  if ( bestDistance > facet->farthestOutsidePointDistance ) {
+  if (bestDistance > facet->farthestOutsidePointDistance) {
     facet->farthestOutsidePointDistance = bestDistance;
     facet->farthestOutsidePointIndex = facet->outsideIndices.size();
   }
-  facet->outsideIndices.push_back( pointIndex );
+  facet->outsideIndices.push_back(pointIndex);
   return facet;
 }
 
-void updateOutsideSets_( const vector< vector< double > >& points,
-                         const vector< vector< size_t > >& visibleFacetOutsideIndices,
-                         vector< FacetIt >& newFacets )
+void ConvexHull::updateOutsideSets_(const std::vector<std::vector<size_t>>& visibleFacetOutsideIndices,
+                                    std::vector<FacetIt>& newFacets) const
 {
-  assert( !newFacets.empty() );
+  assert(!newFacets.empty());
 
-  for ( size_t vi = 0; vi < visibleFacetOutsideIndices.size(); ++vi ) {
+  for (const auto& outsideIndices : visibleFacetOutsideIndices) {
     Facet* facetOfPreviousPoint = nullptr;
-    const vector< size_t >& outsideIndices = visibleFacetOutsideIndices[ vi ];
-    for ( size_t pi = 0; pi < outsideIndices.size(); ++pi ) {
-      const size_t pointIndex = outsideIndices[ pi ];
-      const vector< double >& point = points[ pointIndex ];
+    for (size_t pi = 0; pi < outsideIndices.size(); ++pi) {
+      const auto pointIndex = outsideIndices.at(pi);
+      const auto& point = points_.at(pointIndex);
 
-      if ( facetOfPreviousPoint != nullptr ) {
-        const double bestDistance = distance_( *facetOfPreviousPoint, point );
-        if ( bestDistance > 0.0 ) {
-          facetOfPreviousPoint = assignPointToFarthestFacet_( facetOfPreviousPoint, bestDistance, pointIndex, point, pi );
+      if (facetOfPreviousPoint != nullptr) {
+        const auto bestDistance = distance_(*facetOfPreviousPoint, point);
+        if (bestDistance > 0.0) {
+          facetOfPreviousPoint = assignPointToFarthestFacet_(facetOfPreviousPoint, bestDistance, pointIndex, point, pi);
           continue;
         }
       }
 
       // If the point was not outside the predicted facets, we have to search through all facets
-      for ( size_t fi = 0; fi < newFacets.size(); ++fi ) {
-        Facet& newFacet = *newFacets[ fi ];
-        if ( facetOfPreviousPoint == &newFacet ) {
+      for (auto& newFacetIt : newFacets) {
+        auto& newFacet = *newFacetIt;
+        if (facetOfPreviousPoint == &newFacet) {
           continue;
         }
-        const double bestDistance = distance_( newFacet, point );
-        if ( bestDistance > 0.0 ) {
-          facetOfPreviousPoint = assignPointToFarthestFacet_( &newFacet, bestDistance, pointIndex, point, pi );
+        const auto bestDistance = distance_(newFacet, point);
+        if (bestDistance > 0.0) {
+          facetOfPreviousPoint = assignPointToFarthestFacet_(&newFacet, bestDistance, pointIndex, point, pi);
           break;
         }
       }
@@ -798,76 +581,61 @@ void updateOutsideSets_( const vector< vector< double > >& points,
   }
 }
 
-vector< vector< size_t > > getOutsidePointIndicesFromFacets_( const vector< FacetIt >& facets,
-                                                              size_t startIndex )
-{
-  vector< vector< size_t > > unassignedPointIndices( facets.size() - startIndex );
-  for ( size_t i = startIndex; i < facets.size(); ++i ) {
-    unassignedPointIndices[ i - startIndex ].swap( facets[ i ]->outsideIndices );
-  }
-  return unassignedPointIndices;
-}
-
-bool isFacetVisibleFromPoint_( const Facet& facet,
-                               const vector< double >& point )
+bool ConvexHull::isFacetVisibleFromPoint_(const Facet& facet, const Point& point) const
 {
   // Returns true if the point is contained in the open negative halfspace of the facet
-  return scalarProduct_( facet.normal, point ) < facet.offset;
+  return scalarProduct_(facet.normal, point) < facet.offset;
 }
 
-double distance_( const Facet& facet,
-                  const vector< double >& point )
+double ConvexHull::distance_(const Facet& facet, const Point& point) const
 {
-  return facet.offset - scalarProduct_( facet.normal, point );
+  return facet.offset - scalarProduct_(facet.normal, point);
 }
 
-double scalarProduct_( const vector< double >& a,
-                       const vector< double >& b )
+double ConvexHull::scalarProduct_(const Point& a, const Point& b) const
 {
-
   ++distanceTests;
-  return inner_product( a.cbegin(), a.cend(), b.cbegin(), 0.0 );
+  return std::inner_product(a.cbegin(), a.cend(), b.cbegin(), 0.0);
 }
 
-void overwritingSolveLinearSystemOfEquations_( vector< vector< double > >& A,
-                                               vector< double >& b )
+void ConvexHull::overwritingSolveLinearSystemOfEquations_(std::vector<std::vector<double> >& A, std::vector<double>& b)
 {
-  const size_t n = A.size();
-  assert( n > 0 );
-  for ( size_t i = 0; i < n; ++i ) {
-    assert( A[ i ].size() == n );
+  const auto n = A.size();
+  assert(n > 0);
+  for (auto& ai : A) {
+    assert(ai.size() == n);
   }
-  assert( b.size() == n );
+  assert(b.size() == n);
 
   // Outer product LU with partial pivoting
   // See Algorithm 3.4.1 in Golub and Van Loan - Matrix Computations, 4th Edition
-  for ( size_t k = 0; k < n; ++k ) {
+  for (size_t k = 0; k < n; ++k) {
     // Determine mu with k <= mu < n so abs( A( mu, k ) ) = max( A( k:n-1, k ) )
-    size_t mu = k;
-    double maxValue = fabs( A[ mu ][ k ] );
-    for ( size_t i = k + 1; i < n; ++i ) {
-      double value = fabs( A[ i ][ k ] );
-      if ( value > maxValue ) {
+    auto mu = k;
+    auto maxValue = fabs(A[mu][k]);
+    for (size_t i = k + 1; i < n; ++i) {
+      const auto value = fabs(A[i][k]);
+      if (value > maxValue) {
         maxValue = value;
         mu = i;
       }
     }
-    if ( maxValue == 0.0 ) {
-      throw invalid_argument( "Singular matrix 1" );
+    if (maxValue == 0.0) {
+      throw std::invalid_argument("Singular matrix 1.");
     }
-    if ( k != mu ) {
-      A[ k ].swap( A[ mu ] );
+    if (k != mu) {
+      A[k].swap(A[mu]);
     }
     // Here, it is utilized that L is not needed
     // (if L is needed, first divide A[ i ][ k ] by A[ k ][ k ], then subtract A[ i ][ k ] * A[ k ][ j ] from A[ i ][ j ])
-    const double invDiag = 1.0 / A[ k ][ k ];
-    //size_t numElements = min( n - k - 1, size_t( 15 ) );
-    for ( size_t i = k + 1; i < n; ++i ) {
-      const double factor = A[ i ][ k ] * invDiag;
-      // The loop unrolling below is equivalent to this:
-       for ( size_t j = k + 1; j < n; ++j ) {
-         A[ i ][ j ] -= factor * A[ k ][ j ];
-       }
+    const auto& ak = A[k];
+    const auto invDiag = 1.0 / ak[k];
+    for (size_t i = k + 1; i < n; ++i) {
+      auto& ai = A[i];
+      const auto factor = ai[k] * invDiag;
+      for (size_t j = k + 1; j < n; ++j) {
+        ai[j] -= factor * ak[j];
+      }
     }
   }
   // LU factorization completed
@@ -875,97 +643,80 @@ void overwritingSolveLinearSystemOfEquations_( vector< vector< double > >& A,
 
   // Solve Ux = y by row-oriented back substitution
   // See Algorithm 3.1.2 in Golub and Van Loan
-  for ( size_t j = n; j > 0; --j ) {
-    const size_t i = j - 1;
-    const double sum = inner_product( A[ i ].begin() + j, A[ i ].end(), b.begin() + j, 0.0 );
+  for (size_t j = n; j > 0; --j) {
+    const auto  i = j - 1;
+    const auto sum = std::inner_product(A[i].begin() + j, A[i].end(), b.begin() + j, 0.0);
 
-    if ( A[ i ][ i ] != 0.0 ) {
-      b[ i ] = ( b[ i ] - sum ) / A[ i ][ i ];
+    if (A[i][i] != 0.0) {
+      b[i] = (b[i] - sum) / A[i][i];
     }
     else {
       // Matrix is singular
-      if ( b[ i ] == sum ) {
+      if (b[i] == sum) {
         // U(i,i) * x(i) == 0.0 and U(i,i) == 0.0 => x(i) == 0.0 is a solution
-        b[ i ] = 0.0;
+        b[i] = 0.0;
       }
       else {
         // U(i,i) * x(i) != 0.0 but U(i,i) == 0.0 => no solution
-        throw invalid_argument( "Singular matrix 2" );
+        throw std::invalid_argument("Singular matrix 2.");
       }
     }
   }
   // b now contains the solution x to Ax = b
 }
 
-void throwExceptionIfNotConvexPolytope_( const list< Facet >& facets )
+void ConvexHull::throwExceptionIfNotConvexPolytope_() const
 {
-  for ( const auto& f : facets ) {
-    for ( size_t i = 0; i < f.neighbors.size(); ++i ) {
-      if ( isFacetVisibleFromPoint_( f, f.neighbors[ i ]->center ) ) {
-        throw invalid_argument( "Not a convex polytope" );
-      }
+  for (const auto& f : facets_) {
+    if (std::ranges::any_of(f.neighbors, [&] (const auto& neighbor) { return isFacetVisibleFromPoint_(f, neighbor->center); })) {
+      throw std::invalid_argument("Not a convex polytope.");
     }
   }
 }
 
-void throwExceptionIfNotAllFacetsFullDimensional_( const list< Facet >& facets,
-                                                   size_t dimension )
+void ConvexHull::throwExceptionIfNotAllFacetsFullDimensional_() const
 {
-  for ( const auto& f : facets ) {
-    if ( f.vertexIndices.size() != dimension ) {
-      throw invalid_argument( "All facets must be full dimensional." );
+  if (std::ranges::any_of(facets_, [dimension = dimension_] (const auto& f) { return f.vertexIndices.size() != dimension; })) {
+    throw std::invalid_argument("All facets must be full dimensional.");
+  }
+}
+
+void ConvexHull::throwExceptionIfFacetsUseNonExistingVertices_() const
+{
+  for (const auto& f : facets_) {
+    if (std::ranges::any_of(f.vertexIndices, [&] (const auto& vi) { return points_.size() <= vi; } )) {
+      throw std::invalid_argument("All facets must consist of existing vertices.");
     }
   }
 }
 
-void throwExceptionIfFacetsUseNonExistingVertices_( const list< Facet >& facets,
-                                                    const vector< vector< double > >& points )
+void ConvexHull::throwExceptionIfNotAllPointsHaveCorrectDimension_() const
 {
-  for ( const auto& f : facets ) {
-    for ( size_t i = 0; i < f.vertexIndices.size(); ++i ) {
-      if ( points.size() <= f.vertexIndices[ i ] ) {
-        throw invalid_argument( "All facets must consist of existing vertices." );
-      }
-    }
+  if (std::ranges::any_of(points_, [dimension = dimension_] (const auto& p) { return p.size() != dimension; })) {
+    throw std::invalid_argument("All points must have the correct dimension.");
   }
 }
 
-void throwExceptionIfNotAllPointsHaveCorrectDimension_( const vector< vector< double > >& points,
-                                                        size_t dimension )
-{
-  for ( const auto& p : points ) {
-    if ( p.size() != dimension ) {
-      throw invalid_argument( "All points must have the correct dimension." );
-    }
-  }
-}
-
-void throwExceptionIfTooFewPoints_( const vector< vector< double > >& points )
+void ConvexHull::throwExceptionIfTooFewPoints_() const
 {
   // At least (dimension + 1) points are needed to create a simplex
-  const size_t dimension = points.size() == 0 ? 0 : points.front().size();
-  if ( points.size() <= dimension ) {
-    throw invalid_argument( "Too few input points to construct convex hull." );
+  if (points_.size() <= dimension_) {
+    throw std::invalid_argument("Too few input points to construct convex hull.");
   }
 }
 
-void throwExceptionIfInvalidPerturbation_( double perturbation,
-                                           const vector< vector< double > >& points )
+void ConvexHull::throwExceptionIfInvalidPerturbation_(const double perturbation, const Points& unperturbedPoints) const
 {
   if ( perturbation < 0.0 ) {
-    throw invalid_argument( "Perturbation must be nonnegative." );
+    throw std::invalid_argument("Perturbation must be nonnegative.");
   }
   if ( perturbation == 0.0 ) {
     return;
   }
-
-  const vector< size_t >& initialPointIndices = getInitialPointIndices_( points );
-  vector< pair< double, pair< size_t, size_t > > > distances = getPairwiseSquaredDistances_( initialPointIndices, points );
-  double maxDistance = sqrt( distances.back().first );
-  if ( perturbation > 0.01 * maxDistance ) {
-    throw invalid_argument( "Perturbation is larger than 1 percent of the maximum distance between points." );
+  const auto initialPointIndices = getInitialPointIndices_(unperturbedPoints);
+  const auto distances = getPairwiseSquaredDistances_(initialPointIndices, unperturbedPoints);
+  const auto maxDistance = std::sqrt(std::get<0>(distances.back()));
+  if (perturbation > 0.01 * maxDistance) {
+    throw std::invalid_argument("Perturbation is larger than 1 percent of the maximum distance between points." );
   }
 }
-
-} // namespace
-} // namespace ConvexHull

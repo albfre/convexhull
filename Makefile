@@ -1,5 +1,5 @@
 CC = g++
-CFLAGS = -g -funroll-loops -std=c++11 -O2 -Wall -pedantic
+CFLAGS = -g -std=c++20 -O2 -Wall -pedantic
 FILE = ConvexHull
 SRCS = $(FILE).cpp $(FILE).h
 OBJS = $(FILE).o
