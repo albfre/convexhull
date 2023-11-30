@@ -250,10 +250,10 @@ void ConvexHull::setInitialSimplex_()
   }
 
   // Update the facets' neighbors
-  for ( auto fIt1 = facets_.begin(); fIt1 != facets_.end(); ++fIt1 ) {
-    for ( auto fIt2 = facets_.begin(); fIt2 != facets_.end(); ++fIt2 ) {
-      if ( fIt1 != fIt2 ) {
-        fIt1->neighbors.push_back( fIt2 );
+  for (auto fIt1 = facets_.begin(); fIt1 != facets_.end(); ++fIt1) {
+    for (auto fIt2 = facets_.begin(); fIt2 != facets_.end(); ++fIt2) {
+      if (fIt1 != fIt2) {
+        fIt1->neighbors.push_back(fIt2);
       }
     }
   }
