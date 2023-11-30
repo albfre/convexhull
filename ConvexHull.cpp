@@ -474,13 +474,14 @@ void ConvexHull::connectNeighbors_(const size_t apexIndex,
     }
   }
   /*
+  // Simpler, but slower in high dimensions
   std::ranges::sort(peakHashes, [] (const auto& a, const auto& b) {
     const auto& [hash1, peak1, facetIt1] = a;
     const auto& [hash2, peak2, facetIt2] = b;
     return hash1 != hash2 ? hash1 < hash2 : *peak1 < *peak2;
   });
-  */
 
+*/
   std::ranges::sort(peakHashes, [] (const auto& a, const auto& b) { return std::get<0>(a) < std::get<0>(b); });
   // If more than two peaks have the same hash values, it is necessary to sort them by the full vectors
   for (size_t i = 0; i < peakHashes.size();) {
