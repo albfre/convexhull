@@ -1,10 +1,9 @@
 /* SYSTEM INCLUDES */
 #include <algorithm>
 #include <assert.h>
-#include <cmath>
-#include <cstdlib>
 #include <iostream>
 #include <numeric>
+#include <random>
 #include <stdexcept>
 #include <set>
 
@@ -41,7 +40,8 @@ void ConvexHull::computeConvexHull_(const Points& unperturbedPoints, const doubl
   throwExceptionIfInvalidPerturbation_(perturbation, unperturbedPoints);
   const auto* perturbationPtr = &perturbation;
   const auto seed = *reinterpret_cast<const unsigned int*>(perturbationPtr);
-  srand(seed);
+  std::mt19937 gen(seed);
+  std::uniform_real_distribution<> randomDistribution(0.0, 1.0);
 
   // Perform perturbation of the input points
   points_.clear();
@@ -54,7 +54,7 @@ void ConvexHull::computeConvexHull_(const Points& unperturbedPoints, const doubl
     points_.resize(uniquePointIndexPairs_.size());
     std::ranges::transform(uniquePointIndexPairs_, points_.begin(), [] (const auto& p) { return p.first; });
     for (auto& v : points_) {
-      std::ranges::transform(v, v.begin(), [&] (const auto d) { return d + (perturbation * rand()) / RAND_MAX; });
+      std::ranges::transform(v, v.begin(), [&] (const auto d) { return d + perturbation * randomDistribution(gen) ; });
     }
   }
   throwExceptionIfTooFewPoints_();
