@@ -12,8 +12,7 @@ class ConvexHull {
 
   struct Facet {
     public:
-      Facet(std::vector<size_t>&& vertexIndices);
-      Facet(const std::vector<size_t>& vertexIndices);
+      Facet(std::vector<size_t>&& vertexIndices, bool isNewFacet = true);
 
       // indices of the points that are the vertices of the facet
       std::vector<size_t> vertexIndices;
@@ -46,95 +45,96 @@ class ConvexHull {
       bool visible = false;
 
       // indicates whether the facet was just created
-      bool isNewFacet = true;
+      bool isNewFacet;
   };
 
-    ConvexHull(const Points& points, double perturbation = 0.0);
+  ConvexHull(const Points& points, double perturbation = 0.0, bool printStats = false);
 
-    const std::vector<std::vector<size_t>> getVertexIndices() const;
+  const std::vector<std::vector<size_t>> getVertexIndices() const;
 
-    using FacetIt = std::list<Facet>::iterator;
+  using FacetIt = std::list<Facet>::iterator;
 
-    mutable size_t distanceTests = 0;
-    mutable size_t hyperPlanes = 0;
+  mutable size_t distanceTests = 0;
+  mutable size_t hyperPlanes = 0;
 
-  private:
-    void computeConvexHull_(const Points& unperturbedPoints, const double perturbation);
+private:
+  void computeConvexHull_(const Points& unperturbedPoints, const double perturbation);
 
-    void growConvexHull_();
+  void growConvexHull_();
 
-    static std::vector<size_t> getInitialPointIndices_(const Points& points);
+  static std::vector<size_t> getInitialPointIndices_(const Points& points);
 
-    static std::vector<std::tuple<double, size_t, size_t>> getPairwiseSquaredDistances_(const std::vector<size_t>& indices, const Points& points);
- 
-    void setInitialSimplex_();
+  static std::vector<std::tuple<double, size_t, size_t>> getPairwiseSquaredDistances_(const std::vector<size_t>& indices, const Points& points);
 
-    void updateFacetCenterPoints_();
+  void setInitialSimplex_();
 
-    std::vector<double> computeOrigin_() const;
+  void updateFacetCenterPoints_();
 
-    Facet& getFacet_(Facet& f) {
-      return f;
-    }
-    Facet& getFacet_(FacetIt& fIt) {
-      return *fIt;
-    }
+  std::vector<double> computeOrigin_() const;
 
-    template<template<class T, class All = std::allocator<T>> class Container, class U>
-    void updateFacetNormalAndOffset_(const Point& origin, Container<U>& facets);
+  Facet& getFacet_(Facet& f) {
+    return f;
+  }
+  Facet& getFacet_(FacetIt& fIt) {
+    return *fIt;
+  }
 
-    void initializeOutsideSets_();
+  template<template<class T, class All = std::allocator<T>> class Container, class U>
+  void updateFacetNormalAndOffset_(const Point& origin, Container<U>& facets);
 
-    static size_t getAndEraseFarthestPointFromOutsideSet_(Facet& facet);
+  void initializeOutsideSets_();
 
-    void getVisibleFacets_(const Point& apex,
-                           FacetIt facetIt,
-                           std::vector<FacetIt>& visibleFacets,
-                           std::vector<std::pair<FacetIt, FacetIt>>& horizon) const;
+  static size_t getAndEraseFarthestPointFromOutsideSet_(Facet& facet);
 
-    void prepareNewFacets_(size_t apexIndex,
-                           const std::vector<std::pair<FacetIt, FacetIt>>& horizon,
-                           std::vector<FacetIt>& visibleFacets,
-                           std::vector<FacetIt>& newFacets);
+  void getVisibleFacets_(const Point& apex,
+                         FacetIt facetIt,
+                         std::vector<FacetIt>& visibleFacets,
+                         std::vector<std::pair<FacetIt, FacetIt>>& horizon) const;
 
-    void connectNeighbors_(size_t apexIndex,
-                           const std::vector<std::pair<FacetIt, FacetIt>>& horizon,
-                           std::vector<FacetIt>& visibleFacets,
-                           std::vector<FacetIt>& newFacets);
+  void prepareNewFacets_(size_t apexIndex,
+                         const std::vector<std::pair<FacetIt, FacetIt>>& horizon,
+                         std::vector<FacetIt>& visibleFacets,
+                         std::vector<FacetIt>& newFacets);
 
-    Facet* assignPointToFarthestFacet_(Facet* facet,
-                                       double bestDistance,
-                                       size_t pointIndex,
-                                       const Point& point,
-                                       size_t visitIndex) const;
+  void connectNeighbors_(size_t apexIndex,
+                         const std::vector<std::pair<FacetIt, FacetIt>>& horizon,
+                         std::vector<FacetIt>& visibleFacets,
+                         std::vector<FacetIt>& newFacets);
 
-    void updateOutsideSets_(const std::vector< std::vector<size_t> >& visibleFacetOutsideIndices,
-                            std::vector<FacetIt>& newFacets) const;
+  Facet* assignPointToFarthestFacet_(Facet* facet,
+                                     double bestDistance,
+                                     size_t pointIndex,
+                                     const Point& point,
+                                     size_t visitIndex) const;
 
-    bool isFacetVisibleFromPoint_(const Facet& facet, const Point& point) const;
-    double scalarProduct_(const Point& a, const Point& b) const;
-    double distance_(const Facet& facet, const Point& point) const;
+  void updateOutsideSets_(const std::vector< std::vector<size_t> >& visibleFacetOutsideIndices,
+                          std::vector<FacetIt>& newFacets) const;
 
-    static void overwritingSolveLinearSystemOfEquations_(std::vector<std::vector<double> >& A, std::vector<double>& b);
+  bool isFacetVisibleFromPoint_(const Facet& facet, const Point& point) const;
+  double scalarProduct_(const Point& a, const Point& b) const;
+  double distance_(const Facet& facet, const Point& point) const;
+
+  static void overwritingSolveLinearSystemOfEquations_(std::vector<std::vector<double> >& A, std::vector<double>& b);
 
 
-    void throwExceptionIfNotConvexPolytope_() const;
-    void throwExceptionIfNotAllFacetsFullDimensional_() const;
-    void throwExceptionIfFacetsUseNonExistingVertices_() const;
-    void throwExceptionIfInvalidPerturbation_(double perturbation, const Points& unperturbedPoints) const;
-    void throwExceptionIfTooFewPoints_() const;
-    void throwExceptionIfNotAllPointsHaveCorrectDimension_() const;
+  void throwExceptionIfNotConvexPolytope_() const;
+  void throwExceptionIfNotAllFacetsFullDimensional_() const;
+  void throwExceptionIfFacetsUseNonExistingVertices_() const;
+  void throwExceptionIfInvalidPerturbation_(double perturbation, const Points& unperturbedPoints) const;
+  void throwExceptionIfTooFewPoints_() const;
+  void throwExceptionIfNotAllPointsHaveCorrectDimension_() const;
 
-    std::vector<std::vector<double>> preallocatedA_;
-    std::vector<std::vector<size_t>> preallocatedPeaks_;
-    std::vector<std::tuple<size_t, std::vector<size_t>*, FacetIt>> preallocatedPeakHashes_;
-    std::vector<size_t> powersOfTwelve_;
+  std::vector<std::vector<double>> preallocatedA_;
+  std::vector<std::vector<size_t>> preallocatedPeaks_;
+  std::vector<std::tuple<size_t, std::vector<size_t>*, FacetIt>> preallocatedPeakHashes_;
+  std::vector<size_t> powersOfTwelve_;
 
-    std::vector<std::vector<size_t>> vertexIndices_;
-    Points points_;
-    std::vector<std::pair<Point, size_t>> uniquePointIndexPairs_;
-    std::list<Facet> facets_;
-    size_t dimension_ = 0;
+  std::vector<std::vector<size_t>> vertexIndices_;
+  Points points_;
+  std::vector<std::pair<Point, size_t>> uniquePointIndexPairs_;
+  std::list<Facet> facets_;
+  size_t dimension_ = 0;
+  bool printStats_ = false;
 };
 
 #endif

@@ -128,7 +128,8 @@ class Test {
 
 std::vector<std::vector<size_t>> computeConvexHull(const std::vector<std::vector<double>>& points, double perturbation = 0.0)
 {
-  auto hull = ConvexHull(points, perturbation);
+  const auto printStats = true;
+  const auto hull = ConvexHull(points, perturbation, printStats);
   return hull.getVertexIndices();
 }
 

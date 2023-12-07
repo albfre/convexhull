@@ -10,16 +10,18 @@
 /* HEADER */
 #include "ConvexHull.h"
 
-ConvexHull::Facet::Facet(std::vector<size_t>&& _vertexIndices) :
-  vertexIndices(std::move(_vertexIndices))
+ConvexHull::Facet::Facet(std::vector<size_t>&& _vertexIndices, const bool _isNewFacet) :
+  vertexIndices(std::move(_vertexIndices)),
+  isNewFacet(_isNewFacet)
 {
   std::ranges::sort(vertexIndices);
   neighbors.reserve(vertexIndices.size());
 }
 
 
-ConvexHull::ConvexHull(const Points& unperturbedPoints, const double perturbation) :
-  dimension_(unperturbedPoints.empty() ? 0 : unperturbedPoints.front().size())
+ConvexHull::ConvexHull(const Points& unperturbedPoints, const double perturbation, const bool printStats) :
+  dimension_(unperturbedPoints.empty() ? 0 : unperturbedPoints.front().size()),
+  printStats_(printStats)
 {
   powersOfTwelve_.resize(dimension_);
   for (size_t i = 0; i < dimension_; ++i) {
@@ -87,8 +89,10 @@ void ConvexHull::computeConvexHull_(const Points& unperturbedPoints, const doubl
   }
   points_.clear();
   uniquePointIndexPairs_.clear();
-  std::cerr << "Number of distance tests: " << distanceTests << std::endl;
-  std::cerr << "Number of hyperplanes created: " << hyperPlanes << std::endl;
+  if (printStats_) {
+    std::cerr << "Number of distance tests: " << distanceTests << std::endl;
+    std::cerr << "Number of hyperplanes created: " << hyperPlanes << std::endl;
+  }
 }
 
 void ConvexHull::growConvexHull_()
@@ -189,13 +193,14 @@ std::vector<size_t> ConvexHull::getInitialPointIndices_(const Points& points)
   std::set<size_t> startPointIndexSet;
   for (size_t d = 0; d < dimension; ++d) {
     const auto [min, max] = std::ranges::minmax_element(points, [d] (const auto& a, const auto& b) { return a[d] < b[d]; });
-    startPointIndexSet.insert(std::ranges::distance(points.cbegin(), min));
-    startPointIndexSet.insert(std::ranges::distance(points.cbegin(), max));
+    startPointIndexSet.insert(std::distance(points.cbegin(), min));
+    startPointIndexSet.insert(std::distance(points.cbegin(), max));
   }
+
   for (size_t i = 0; startPointIndexSet.size() <= dimension && i < points.size(); ++i) {
     startPointIndexSet.insert(i);
   }
-  return std::vector<size_t>(startPointIndexSet.cbegin(), startPointIndexSet.cend());
+  return {startPointIndexSet.cbegin(), startPointIndexSet.cend()};
 }
 
 std::vector<std::tuple<double, size_t, size_t>> ConvexHull::getPairwiseSquaredDistances_(const std::vector<size_t>& indices, const Points& points)
@@ -208,12 +213,11 @@ std::vector<std::tuple<double, size_t, size_t>> ConvexHull::getPairwiseSquaredDi
     for (size_t j = i + 1; j < indices.size(); ++j) {
       const auto sj = indices[j];
       const auto& pointJ = points.at(sj);
-      auto distance = 0.0;
-      for (size_t k = 0; k < pointI.size(); ++k) {
-        const auto difference = pointI[k] - pointJ[k];
-        distance += difference * difference;
-      }
-      distances.push_back({distance, si, sj});
+      const auto distance = std::transform_reduce(
+        pointI.cbegin(), pointI.cend(), pointJ.cbegin(), 0.0,
+        std::plus{}, [](auto a, auto b) { return (a - b) * (a - b); }
+      );
+      distances.emplace_back(distance, si, sj);
     }
   }
   std::ranges::sort(distances);
@@ -228,8 +232,8 @@ void ConvexHull::setInitialSimplex_()
 
   std::vector<size_t> indices;
   indices.reserve(dimension_ + 1);
-  for (size_t di = distances.size() - 1; indices.size() <= dimension_; --di) {
-    const auto [_, i, j] = distances.at(di);
+  for (size_t di = distances.size(); indices.size() <= dimension_; --di) {
+    const auto [_, i, j] = distances.at(di - 1);
     if (std::ranges::find(indices, i) == indices.end()) {
       indices.push_back(i);
     }
@@ -245,8 +249,7 @@ void ConvexHull::setInitialSimplex_()
     for (size_t j = 0; j < dimension_; ++j) {
       vertexIndices[j] = indices[(i + j) % (dimension_ + 1)];
     }
-    facets_.push_back(Facet(std::move(vertexIndices)));
-    facets_.back().isNewFacet = false;
+    facets_.emplace_back(std::move(vertexIndices), false);
   }
 
   // Update the facets' neighbors
@@ -329,7 +332,7 @@ void ConvexHull::initializeOutsideSets_()
 {
   std::set<size_t> vertexIndices;
   for (const auto& facet : facets_) {
-    vertexIndices.insert(facet.vertexIndices.begin(), facet.vertexIndices.end());
+    vertexIndices.insert(facet.vertexIndices.cbegin(), facet.vertexIndices.cend());
   }
   for (size_t pi = 0; pi < points_.size(); ++pi) {
     if (vertexIndices.find(pi) == vertexIndices.end()) {
@@ -369,10 +372,10 @@ void ConvexHull::getVisibleFacets_(const Point& apex,
 {
   facetIt->visible = true;
   facetIt->visitIndex = 0;
-  auto startIndex = visibleFacets.size();
+  const auto startIndex = visibleFacets.size();
   visibleFacets.push_back(facetIt);
   for (size_t vi = startIndex; vi < visibleFacets.size(); ++vi) {
-    auto visibleFacetIt = visibleFacets.at(vi);
+    const auto visibleFacetIt = visibleFacets.at(vi);
     const auto& visibleFacet = *visibleFacetIt;
     for (auto neighborIt : visibleFacet.neighbors) {
       auto& neighbor = *neighborIt;
@@ -385,7 +388,7 @@ void ConvexHull::getVisibleFacets_(const Point& apex,
       }
 
       if (!neighbor.visible) {
-        horizon.push_back({visibleFacetIt, neighborIt});
+        horizon.emplace_back(visibleFacetIt, neighborIt);
       }
       neighbor.visitIndex = 0;
     }
@@ -418,8 +421,7 @@ void ConvexHull::prepareNewFacets_(const size_t apexIndex,
     }
     else {
       facets_.emplace_back(std::move(vertexIndices));
-      newFacets.push_back(facets_.end());
-      --newFacets.back();
+      newFacets.push_back(std::prev(facets_.end()));
     }
   }
 
