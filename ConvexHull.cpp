@@ -150,7 +150,7 @@ void ConvexHull::growConvexHull_()
     // Create new facets from the apex
     newFacets.clear();
     prepareNewFacets_(apexIndex, horizon, visibleFacets, newFacets);
-    connectNeighbors_(apexIndex, horizon, visibleFacets, newFacets);
+    connectNeighbors_(apexIndex, horizon, newFacets);
     assert(std::ranges::all_of(newFacets, [dimension = dimension_] (const auto& newFacet) { return newFacet->neighbors.size() == dimension; }));
 
     // Update the facet normals and offsets
@@ -230,20 +230,16 @@ void ConvexHull::setInitialSimplex_()
   const auto startPointIndices = getInitialPointIndices_(points_);
   const auto distances = getPairwiseSquaredDistances_(startPointIndices, points_);
 
-  std::vector<size_t> indices;
-  indices.reserve(dimension_ + 1);
-  for (size_t di = distances.size(); indices.size() <= dimension_; --di) {
+  std::set<size_t> indexSet;
+  for (size_t di = distances.size(); indexSet.size() <= dimension_; --di) {
     const auto [_, i, j] = distances.at(di - 1);
-    if (std::ranges::find(indices, i) == indices.end()) {
-      indices.push_back(i);
-    }
-    if (std::ranges::find(indices, j) == indices.end() ) {
-      indices.push_back(j);
-    }
+    indexSet.insert(i);
+    indexSet.insert(j);
   }
 
   // Create initial simplex using the (dimension + 1) first points.
   // The facets have vertices [0, ..., dimension - 1], [1, ..., dimension], ..., [dimension, 0, ..., dimension - 2] in sortedIndices.
+  std::vector<size_t> indices(indexSet.cbegin(), indexSet.cend());
   for (size_t i = 0; i <= dimension_; ++i) {
     std::vector<size_t> vertexIndices(dimension_);
     for (size_t j = 0; j < dimension_; ++j) {
@@ -446,7 +442,6 @@ void ConvexHull::prepareNewFacets_(const size_t apexIndex,
 
 void ConvexHull::connectNeighbors_(const size_t apexIndex,
                                    const std::vector<std::pair< FacetIt, FacetIt>>& horizon,
-                                   std::vector<FacetIt>& visibleFacets,
                                    std::vector<FacetIt>& newFacets)
 {
   auto& peaks = preallocatedPeaks_;

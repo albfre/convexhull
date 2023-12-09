@@ -98,7 +98,6 @@ private:
 
   void connectNeighbors_(size_t apexIndex,
                          const std::vector<std::pair<FacetIt, FacetIt>>& horizon,
-                         std::vector<FacetIt>& visibleFacets,
                          std::vector<FacetIt>& newFacets);
 
   Facet* assignPointToFarthestFacet_(Facet* facet,
